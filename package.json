@@ -1,0 +1,15 @@
+{
+  "name": "per-my-last-quest",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Write an adventurer's orders. Watch the consequences. A local browser LLM game prototype.",
+  "scripts": {
+    "play": "node tools/play.mjs",
+    "start": "node tools/serve.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "test:browser": "node tools/smoke.mjs",
+    "test:llm": "node tools/smoke.mjs --llm"
+  },
+  "engines": { "node": ">=22" }
+}

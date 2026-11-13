@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#234a39">
+  <meta name="description" content="An adventurer follows your standing orders. Rewrite the prompt, retry the circuit, and get them home alive. Runs an LLM in your browser.">
+  <title>Per My Last Quest — a prompt-controlled adventure</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='9' fill='%23234a39'/%3E%3Ctext x='20' y='29' text-anchor='middle' font-size='28' fill='%23f5ecd6'%3EQ%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="./style.css">
+  <script type="module" src="./src/app.js"></script>
+</head>
+<body>
+  <header class="masthead">
+    <a class="brand" href="./"><span class="seal" aria-hidden="true">Q</span><span>PER MY LAST QUEST<small>THE ADVENTURERS’ GUILD · FIELD TRIAL 001</small></span></a>
+    <button id="help-toggle" class="quiet" aria-expanded="false" aria-controls="help">How to play <span aria-hidden="true">↗</span></button>
+  </header>
+  <section id="help" class="help" hidden>
+    <strong>You write the orders. The hero makes the decisions.</strong>
+    <p>The first assignment asks for one stamp and a safe return within 12 turns. The second uses a twelve-stop circuit: collect three stamps, defeat the champion, and reach camp within 38 turns. Quick attacks restore stamina; heavy attacks cost 2 stamina. Agile enemies evade heavy attacks. Health is marked LOW at 18 HP or less. Healing takes a turn, so an enemy can retaliate.</p>
+    <p>Load the local model, edit your standing orders, then run the trial. Pause to inspect a decision. Retry with revised orders on the same circuit. Model loading and thinking never consume game time. Manual sandbox lets you inspect the rules without a model; it does not interpret your prompt.</p>
+  </section>
+  <main>
+    <div class="intro"><div><p class="eyebrow">A SMALL EXPERIMENT IN FOLLOWING INSTRUCTIONS</p><h1>Instructions were <em>unclear.</em></h1><p class="lede">One adventurer. Your standing orders. Predictable consequences.</p></div><div class="edition">LOCAL LLM<br><strong>Browser edition</strong></div></div>
+    <div class="game-layout">
+      <section class="field" aria-label="The guild trial">
+        <div class="field-heading"><div><label class="eyebrow" for="level">THE NEXT ASSIGNMENT</label><select id="level" aria-label="Assignment"><option value="tutorial">01 · First instructions</option><option value="circuit">02 · The full guild circuit</option></select></div><span id="lap-badge" class="badge">LAP 1</span></div>
+        <div class="stats" aria-label="Hero status">
+          <div class="hp-stat"><span>HEALTH <strong id="hp-value">40 / 40</strong></span><div class="health-track"><div id="hp-bar"></div></div></div>
+          <div><span>STAMINA</span><strong id="stamina-value">4 / 4</strong></div>
+          <div><span>POTIONS</span><strong id="potion-value">2</strong></div>
+          <div><span>COINS</span><strong id="coin-value">0</strong></div>
+          <div><span>TURNS</span><strong id="turn-value">0 / 38</strong></div>
+        </div>
+        <div class="map-wrap"><svg id="map" viewBox="0 0 760 420" role="img" aria-label="A twelve-stop training circuit. The hero starts at camp."></svg></div>
+        <div class="objective"><span class="objective-icon" aria-hidden="true">✓</span><div><strong>The assignment</strong><p id="objective-progress">Collect 3 stamps · Beat the champion · Return to camp</p></div><div id="stamps" aria-label="Zero of three stamps" class="stamps"></div></div>
+        <div id="encounter" class="encounter" aria-live="polite"></div>
+        <div class="controls"><button id="run" class="primary" disabled>Load the model to begin <span aria-hidden="true">→</span></button><button id="step" class="secondary" disabled>One decision</button><button id="reset" class="quiet">Restart trial</button><button id="next-level" class="secondary" hidden>Next assignment →</button></div>
+        <p id="run-status" class="run-status" role="status">Your hero is waiting for instructions.</p>
+      </section>
+      <aside class="orders-panel" aria-label="Standing orders and model settings">
+        <div class="panel-label"><span class="eyebrow">01 / THE INSTRUCTIONS</span><span class="ink-mark" aria-hidden="true">✎</span></div>
+        <h2>Dear hero,</h2><label class="sr-only" for="orders">Standing orders</label><textarea id="orders" maxlength="1800" spellcheck="false"></textarea>
+        <div class="letter-signoff"><span>Regards,<br><strong>Guild management</strong></span><span id="word-count"></span></div>
+        <div class="presets"><span>TRY A DIFFERENT APPROACH</span><div><button data-preset="reckless">An unfortunate first draft</button><button data-preset="careful">A little more specific</button></div></div>
+        <p class="hint">Small edits can make a big difference. New orders apply when you restart the trial.</p>
+        <div class="model-panel"><label for="mode">Hero controller</label><select id="mode"><option value="llm">Local browser LLM</option><option value="manual">Manual sandbox · no LLM</option></select>
+          <div id="model-options"><label for="model">Model</label><select id="model"><option value="Qwen2.5-3B-Instruct-q4f32_1-MLC">Qwen 3B · WebGPU, recommended</option><option value="cpu:onnx-community/Qwen2.5-0.5B-Instruct">Qwen 0.5B · CPU, experimental</option><option value="Qwen2.5-7B-Instruct-q4f32_1-MLC">Qwen 7B · WebGPU, larger</option><option value="Qwen2.5-0.5B-Instruct-q4f32_1-MLC">Qwen 0.5B · WebGPU</option><option value="Qwen2.5-1.5B-Instruct-q4f32_1-MLC">Qwen 1.5B · WebGPU</option></select><button id="load-model" class="secondary full">Load local model <span aria-hidden="true">↓</span></button><progress id="load-progress" max="1" value="0" hidden></progress><p id="model-status" role="status">The recommended model downloads about 1.7 GB and needs WebGPU with about 3 GB of GPU memory. The smaller CPU option is experimental. Your orders and decisions stay in this browser.</p></div>
+          <p id="manual-note" hidden>Choose actions yourself below the map. Your prompt is not interpreted in this mode.</p>
+        </div>
+      </aside>
+    </div>
+    <section class="journal" aria-label="Decision log"><div class="journal-heading"><div><p class="eyebrow">02 / THE CONSEQUENCES</p><h2>The expedition report.</h2></div><button id="export" class="quiet">Save report ↓</button></div><div id="journal"><p class="empty-log">Nothing to report. An unusually promising start.</p></div></section>
+  </main>
+  <footer><span>A working prototype. No server inference. No API key.</span><span>THE GUILD ACCEPTS NO RESPONSIBILITY FOR VAGUE INSTRUCTIONS.</span></footer>
+</body>
+</html>
