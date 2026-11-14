@@ -2,6 +2,14 @@
 
 Original prototype checks on 2026-11-13, with model-selection checks added on 2026-11-14. This file distinguishes game-rule checks, browser UI checks, and genuine model inference.
 
+## Orders size instead of the complexity meter (2026-11-14)
+
+- `npm test` passed (50 tests). The complexity test was replaced by one for the size line. It checks words, estimated tokens marked "about", and an exact count shown only for the text that was counted.
+- `npm run test:browser` passed. Without a model, 72-word orders show "72 words · about 91 tokens". With the stub worker, the count comes from the worker and "about" disappears. After the orders are edited, the size shows an estimate until the new text is counted. Token counts never overlapped a decision request.
+- **Real tokenizer, Qwen 2.5 3B on hardware WebGPU (RTX 4090):** the worker counted ten sample orders in 0–14 ms each, with no errors. The counts were 3 to 280 tokens, about 5 characters or 1.25 words per token for plain sentences. The new estimate (`words × 1.25 + 1`) was within 15% of the exact count for plain sentences and up to 25% low for a terse list in capitals.
+- `QUEST_PROFILE=artifacts/llm-test-profile npm run test:llm -- --full` passed. The trial was won in 6 turns with 37 HP and no browser errors. The page showed the exact "19 words · 22 tokens" for the careful tutorial orders.
+- Not checked: counting with the CPU model. It uses the Transformers.js tokenizer call that CPU decisions already use.
+
 ## Browser setup guide (2026-11-14)
 
 - `npm run test:browser` passed. It now checks that a missing WebGPU opens the in-game setup guide, which covers Windows, Mac and Linux and names `npm run play`. It also checks that the blocked status line points to the guide and that the open guide fits at 360 px. Screenshot: `artifacts/webgpu-help-phone.png`. `npm test` still passes (50 tests).

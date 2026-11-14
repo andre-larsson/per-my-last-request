@@ -304,19 +304,9 @@ textarea:focus-visible { outline-offset: 0; border-color: var(--green); }
 textarea:disabled { opacity: .75; }
 .letter-signoff { display: flex; justify-content: space-between; align-items: end; gap: 12px; margin-top: 10px; font: italic 15px/1.4 var(--serif); color: var(--muted); }
 .letter-signoff strong { font-weight: 400; color: var(--ink); }
-#word-count { font: 13px var(--mono); font-style: normal; }
-/* Orders complexity: advice for small models, never a penalty. */
-.complexity { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 4px 10px; margin-top: 12px; padding: 10px 12px; border-radius: 8px; background: var(--inset); border: 1px solid var(--line); font-size: 14px; }
-.complexity .meter { display: inline-flex; gap: 3px; }
-.complexity .meter i { width: 14px; height: 8px; border-radius: 2px; background: #e6dcc3; }
-.complexity[data-level="simple"] .meter i.on { background: var(--green); }
-.complexity[data-level="moderate"] .meter i.on { background: var(--ochre); }
-.complexity[data-level="complex"] .meter i.on { background: var(--rust); }
-.complexity-text { color: var(--muted); }
-.complexity-text strong { color: var(--ink); }
-.complexity[data-level="complex"] { background: var(--ochre-soft); border-color: #e3cc8c; }
-.complexity-advice { grid-column: 1 / -1; color: var(--muted); line-height: 1.4; }
-.complexity[data-level="complex"] .complexity-advice { color: var(--ink); }
+/* The size of the orders: words and tokens, nothing more. */
+.orders-size { font: 13px/1.5 var(--mono); font-style: normal; text-align: right; white-space: nowrap; }
+.letter-signoff > span:first-child { white-space: nowrap; }
 .presets { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
 .presets > div { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .presets button { flex: 1 1 auto; padding: 8px 12px; border: 1px solid var(--line-strong); background: var(--card); font-size: 14px; font-weight: 600; }

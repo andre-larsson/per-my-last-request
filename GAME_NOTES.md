@@ -15,7 +15,8 @@ The previous balance is tagged `balance-before`. The user chose all four changes
 - **Old values, for reverting:** limit 38, sword 6 coins, bruiser 14 HP and 2 coins, bench stamina only, champion 32 HP hitting 9 every turn. During this rework the champion was 32 HP with the routine; it went to 30 because two real-model runs died to it about 2 HP short (bots: 54% → 56% of styles win).
 - **Commendations** (optional, shown in the verdict): Ahead of schedule (by turn 26), No expense claims (no potion drunk), Overtime (beat the bruiser), By the book (no unguarded smash). They pull in different directions; 3 of 301 winning styles earn all four.
 - **Example orders** are one sentence: careful "Quick strike every turn, except: guard against a SMASH, drink a potion when health is LOW, and retreat from the optional prize fight." A heavy-based example ("Use heavy strikes, but guard…") was tried and dropped: the 3B then skipped guards and retreated from stamp fights. The reckless example loses to the champion's smash.
-- **Complexity meter** under the orders (`ordersComplexity` in `src/view.js`): instructions + condition words (+1 per 40 words). Simple ≤ 7, moderate ≤ 11, complex above. A warning only, at the user's request; no penalty.
+- **Orders size** under the orders (`ordersSize` in `src/view.js`): words and tokens, nothing else. It replaced the complexity meter on 2026-11-14 at the user's request. That meter's levels (instructions plus condition words; simple ≤ 7, moderate ≤ 11) rested on no evidence, and it miscounted real orders: the careful example has four rules but counted as 1 instruction and 2 conditions. With a model loaded, the worker counts tokens with that model's own tokenizer; WebLLM 0.2.88 has no public call for this, so it reads the loaded pipeline's tokenizer, and a failure falls back to the estimate. Before that, `words × 1.25 + 1`, shown as "about". On ten sample orders against the Qwen 2.5 tokenizer, that estimate was within 15% for plain sentences and up to 25% low for terse lists in capitals (`chars / 4` was off by up to 39%). Each turn's full prompt is about 220–370 tokens with the example orders; the context window is 2,048 tokens and the textarea stops at 1,800 characters, so the orders cannot overflow it.
+- **Open idea, not built (user, 2026-11-14):** have the loaded model describe the orders itself. See the playtest questions.
 
 Proxies (`node tools/balance.mjs`, 540 scripted order styles; before → after). The user's targets: at least 3 fight approaches win; reading clearly beats a fixed recipe; a good plan wins ≥ 70% with 10% random decisions; every stop and action is used by some winner; about half of simple orders win.
 
@@ -95,7 +96,7 @@ Style preamble, used at the start of every request (full requests in `assets-src
 - `node tools/probe.mjs`: the real model answers 13 fixed circuit situations (built by the engine, prompted by the real protocol and worker) without playing a trial. About a minute with the model cached. `PROBE_ORDERS='orders A || orders B'` compares variants. Use it before changing prompt wording or example orders.
 
 - `node tools/shots.mjs [dir]`: screenshots of setup, tutorial fight, win and loss, and circuit start, smash, mid-turn playback (held on the blocked charge), counter, armorer, champion, win, low health and death at 1440, 1180 and 390 px, using the Manual sandbox. Also lists rendered text under 12 px and any horizontal overflow. It selects mode buttons as `button[data-mode=…]`: `<body>` carries `data-mode` too.
-- `QuestDemo.setPace('instant')` turns playback off (tools use it for fast clicking); `QuestDemo.hold(n)` stops playback on beat n, `hold(null)` releases it; `QuestDemo.skip()`. The snapshot reports `phase`, `playing`, `beat`, `beatKinds`, `awaitingModel`, `modelBusy`.
+- `QuestDemo.setPace('instant')` turns playback off (tools use it for fast clicking); `QuestDemo.hold(n)` stops playback on beat n, `hold(null)` releases it; `QuestDemo.skip()`. The snapshot reports `phase`, `playing`, `beat`, `beatKinds`, `awaitingModel`, `modelBusy`. `QuestDemo.countTokens(text)` counts tokens with the loaded model's tokenizer.
 - `python3 tools/art.py`: rebuilds `assets/art/` from `assets-src/raw/`.
 - `npm run test:browser`: manual play through the real controls, then the LLM-mode controls against a stub worker the test injects (no inference). `npm run test:llm -- --full`: real inference; `QUEST_LOAD_MINUTES=60` allows a slow first download, and `QUEST_PROFILE=artifacts/llm-test-profile` keeps the downloaded model between test runs. Results are in `VERIFICATION.md`.
 
@@ -108,7 +109,7 @@ The engine is deterministic: no randomness, fixed course. Model output is not gu
 - Battles: in a circuit fight, do you look at the red "Next move" box before anything else? Is the counter ("Countered for 10") satisfying to watch?
 - Can you write orders that beat the circuit with the local model in fewer than three tries? Which orders did the model misread?
 - Is 32 turns tight in a fun way, or does it punish taking the medic and bench?
-- Does the complexity meter nudge you toward shorter orders, or just get ignored?
+- Do you look at the words and tokens under the orders at all? Would you rather have the loaded model read the orders back in its own words before a run (not built)?
 - Does the anti-hero portrait and tone fit, and is "Your sellsword" the right label?
 
 - What did you look at first on the setup screen?

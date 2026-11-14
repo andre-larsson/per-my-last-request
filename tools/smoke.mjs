@@ -24,6 +24,8 @@ window.Worker = class {
   postMessage({ id, type, payload }) {
     const reply = (message, ms) => setTimeout(() => { if (!this.dead) this.onmessage?.({ data: message }); }, ms);
     if (type === 'load') { reply({ type: 'progress', report: { progress: 0.5, text: 'Stub worker: halfway.' } }, 20); reply({ id, type: 'result', result: { model: payload.model } }, 150); return; }
+    // Like the real worker, token counts are answered at once, even during a decision. The stub counts characters.
+    if (type === 'count') { window.__stub.counts = (window.__stub.counts || 0) + 1; reply({ id, type: 'result', result: { tokens: payload.text.length } }, 5); return; }
     // Like the real worker, one request at a time.
     if (this.busy) { window.__stub.overlaps++; reply({ id, type: 'error', error: 'The model is already processing a request.' }, 0); return; }
     this.busy = true;
@@ -52,6 +54,10 @@ async function stubbedLlmFlow(page, url) {
   await page.eval(`QuestDemo.setPace('instant')`);
   assert.equal(await page.eval('!document.querySelector("#run").hidden && document.querySelector("#load-cta").hidden && document.querySelector("#manual-cta").hidden'), true, 'A ready model swaps the load actions for Run');
   assert.match(await page.eval('document.querySelector("#model-chip").textContent'), /Ready/);
+  // A loaded model counts the tokens itself (the stub counts characters), so the size stops saying "about".
+  const sizeShows = text => `document.querySelector("#orders-size").textContent === "${text.split(/\s+/).length} words · ${text.length} tokens"`;
+  await page.waitFor(sizeShows(await page.eval('document.querySelector("#orders").value.trim()')));
+  assert.match(await page.eval('document.querySelector("#orders-size").title'), /counted by Qwen 2\.5 · 0\.5B/);
   await page.screenshot(join(artifacts, 'flow-ready.png'));
   // The forced departure is automatic. The next turn is a real choice, answered slowly so the waiting state can be seen.
   await page.click('#step');
@@ -86,6 +92,8 @@ async function stubbedLlmFlow(page, url) {
   const revised = 'Fight the practice rat with quick strikes, then return to camp and submit.';
   await page.eval(`document.querySelector('#orders').value=${JSON.stringify(revised)};document.querySelector('#orders').dispatchEvent(new Event('input',{bubbles:true}));`);
   assert.equal(await page.eval('document.querySelector("#orders-notice").hidden'), false, 'Edited orders are flagged before they apply');
+  assert.match(await page.eval('document.querySelector("#orders-size").textContent'), /about/, 'Until the model has counted the new text, the tokens are an estimate');
+  await page.waitFor(sizeShows(revised));
   await page.eval('window.__stub.seen.length = 0');
   await page.click('#run');
   await page.waitFor('QuestDemo.snapshot().game.status === "won"', 20000);
@@ -268,13 +276,12 @@ try {
     assert.equal(await page.eval('document.querySelector("#foe-hp-value").textContent'),'8');
     assert.match(await page.eval('document.querySelector("#last-move").textContent'),/Countered for 10/);
     await page.eval(`QuestDemo.setPace('instant')`);
-    // The complexity meter reads the orders but never blocks them.
+    // Without a model the orders show their size with estimated tokens. Long orders are never blocked.
     const typed = await page.eval('document.querySelector("#orders").value');
     await page.eval(`(() => { const o = document.querySelector('#orders'); o.value = ${JSON.stringify('Collect all three stamps, defeat the champion, and submit at camp. When your health is LOW, drink a potion if one is available. Otherwise save potions. In every fight, use a heavy strike whenever it is available. Use a quick strike when heavy is unavailable. Guard when the enemy is about to smash, unless it is nearly dead. Outside fights, visit the medic, buy the buckler, or rest when offered. Otherwise continue.')}; o.dispatchEvent(new Event('input')); })()`);
-    assert.equal(await page.eval('document.querySelector("#complexity").dataset.level'),'complex');
-    assert.match(await page.eval('document.querySelector("#complexity-advice").textContent'),/no penalty/i);
+    assert.match(await page.eval('document.querySelector("#orders-size").textContent'),/^72 words · about 91 tokens$/);
     await page.eval(`(() => { const o = document.querySelector('#orders'); o.value = ${JSON.stringify(typed)}; o.dispatchEvent(new Event('input')); })()`);
-    assert.equal(await page.eval('document.querySelector("#complexity").dataset.level'),'simple');
+    assert.match(await page.eval('document.querySelector("#orders-size").textContent'),/^\d+ words · about \d+ tokens$/);
     // This policy only drives deterministic engine/UI verification. It is not an LLM substitute.
     for (let i=0;i<40;i++) {
       const s = await page.eval('QuestDemo.snapshot().game');

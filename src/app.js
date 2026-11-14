@@ -3,7 +3,7 @@ import { parseDecision, decisionMessages } from './protocol.js';
 import { LocalModel } from './model.js';
 import { renderMap } from './map.js';
 import { MODELS, findModel, modelSize, checkDevice, recommendModel, selectedModelAdvice } from './models.js';
-import { escapeHtml, artUrl, objectiveSteps, sceneFor, lastMoveHtml, journalHtml, verdictFor, verdictHtml, ordersComplexity, turnBeats, displayAt, turnFeedHtml, shoutFor, PACES, PACE_ORDER, BEAT_MS } from './view.js';
+import { escapeHtml, artUrl, objectiveSteps, sceneFor, lastMoveHtml, journalHtml, verdictFor, verdictHtml, ordersSize, turnBeats, displayAt, turnFeedHtml, shoutFor, PACES, PACE_ORDER, BEAT_MS } from './view.js';
 import { unlockSound, setSoundEnabled, playSound } from './sound.js';
 
 const $ = id => document.getElementById(id);
@@ -22,6 +22,9 @@ let hasError = false;
 let lastDecision = null;
 let device = null;
 let checkingDevice = false;
+let tokenCount = null; // { text, model, tokens } counted by the loaded model's tokenizer.
+let countKey = null;
+let countTimer = null;
 let setupShownFor = null; // The device check result that last opened the WebGPU guide.
 let recommendation = null;
 let mapShownAt = null; // The stop the map last showed, so the marker can walk instead of jump.
@@ -322,18 +325,34 @@ function renderControls(s) {
   $('sound').innerHTML = `<span aria-hidden="true">♪</span> ${soundOn ? 'On' : 'Off'}`;
   $('sound').setAttribute('aria-label', `Sound effects ${soundOn ? 'on' : 'off'}`);
 }
+// The loaded model counts the tokens of the orders with its own tokenizer, shortly after typing stops.
+// Counting never waits for or delays a decision; if it fails, the estimate stays.
+function countOrderTokens() {
+  if (!model.ready) return;
+  const text = typedOrders();
+  const id = model.model;
+  const key = `${id}\n${text}`;
+  if (countKey === key) return; // Already counted, or being counted.
+  countKey = key;
+  clearTimeout(countTimer);
+  countTimer = setTimeout(async () => {
+    try {
+      const tokens = await model.countTokens(text);
+      if (model.ready && model.model === id && typedOrders() === text) { tokenCount = { text, model: id, tokens }; renderOrders(); }
+    } catch { /* The estimate stays. */ }
+  }, 250);
+}
 function renderOrders() {
   const changed = mode === 'llm' && game.turn > 0 && typedOrders() !== runOrders;
   $('orders').disabled = running || deciding();
   $('orders-notice').hidden = !changed;
-  // A reading aid only. Complex orders are allowed; small models just tend to drop some of their rules.
-  const complexity = ordersComplexity(typedOrders());
-  $('word-count').textContent = `${complexity.words} words`;
-  $('complexity').dataset.level = complexity.level;
-  $('complexity').querySelectorAll('.meter i').forEach((pip, i) => pip.classList.toggle('on', i < complexity.segments));
-  $('complexity-label').textContent = complexity.label;
-  $('complexity-counts').textContent = `· ${complexity.instructions} instruction${complexity.instructions === 1 ? '' : 's'}, ${complexity.conditions} condition${complexity.conditions === 1 ? '' : 's'}`;
-  $('complexity-advice').textContent = complexity.advice;
+  // Size only. Tokens are exact once the loaded model has counted this text, and an estimate before that.
+  const counted = model.ready && tokenCount?.model === model.model ? { ...tokenCount, by: findModel(tokenCount.model).name } : null;
+  const size = ordersSize(typedOrders(), counted);
+  // Words over tokens, two lines like the signature beside them. The hidden separator keeps the text readable as one line.
+  $('orders-size').innerHTML = size.label.split(' · ').map(escapeHtml).join('<span class="sr-only"> · </span><br>');
+  $('orders-size').title = size.note;
+  countOrderTokens();
   $('peek-text').textContent = (game.turn > 0 && runOrders) || typedOrders() || 'No orders written.';
   document.querySelectorAll('[data-preset]').forEach(button => { button.disabled = running || deciding(); });
 }
@@ -647,6 +666,7 @@ window.addEventListener('beforeunload', () => model.dispose());
 // Small debugging surface for browser smoke tests, screenshots and reproducible reports.
 // `setPace('instant')` turns playback off for tools; `hold(n)` stops playback on beat n, `hold(null)` releases it.
 window.QuestDemo = {
+  countTokens: text => model.countTokens(text),
   snapshot: () => structuredClone({ game, mode, level, running, thinking: deciding(), phase, playing: Boolean(playback), beat: playback ? playback.index : null, beatKinds: playback ? playback.beats.map(beat => beat.kind) : null, awaitingModel, modelBusy: modelBusy > 0, pace, sound: soundOn, modelReady: model.ready, status, lastDecision, orders: runOrders, device, checkingDevice, recommendation: recommendation?.model?.id || null }),
   loadModel, step,
   setPace: name => { if (name === 'instant' || PACES[name]) { pace = name; render(); } },

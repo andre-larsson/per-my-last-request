@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { newGame, applyAction, availableActions, TILES, LOW_HP, observation, nextMove, strikeDamage, commendations, PRESETS, TUTORIAL_PRESETS } from '../src/game.js';
-import { objectiveSteps, sceneFor, deltas, lastMoveHtml, journalHtml, verdictFor, verdictHtml, actionTally, ordersComplexity, TILE_ART, turnBeats, displayAt, turnFeedHtml, shoutFor, BEAT_MS } from '../src/view.js';
+import { objectiveSteps, sceneFor, deltas, lastMoveHtml, journalHtml, verdictFor, verdictHtml, actionTally, ordersSize, estimateTokens, TILE_ART, turnBeats, displayAt, turnFeedHtml, shoutFor, BEAT_MS } from '../src/view.js';
 import { renderMap, mapLayout } from '../src/map.js';
 
 const play = (state, ...ids) => ids.reduce((s, id) => applyAction(s, id), state);
@@ -218,17 +218,22 @@ test('rulebook: commendations', () => {
   const html = verdictHtml(verdictFor(won));
   assert.match(html, /Commendations 4 of 4/);
 });
-test('the complexity meter rates orders without changing them, and the examples stay simple', () => {
-  for (const orders of [...Object.values(PRESETS), ...Object.values(TUTORIAL_PRESETS)]) assert.equal(ordersComplexity(orders).level, 'simple', orders);
-  const empty = ordersComplexity('   ');
-  assert.deepEqual([empty.words, empty.instructions, empty.segments, empty.level], [0, 0, 0, 'simple']);
-  const tangled = 'Collect all three stamps, defeat the champion, and submit the assignment at camp.\nYour highest priority: when your health status is LOW, drink a potion if one is available. Otherwise save potions.\nIn every fight, use a heavy strike whenever it is available. Use a quick strike when heavy is unavailable. Never retreat.\nOutside fights, visit the medic, buy the sword, or rest when offered. Otherwise continue along the circuit.';
-  const rated = ordersComplexity(tangled);
-  assert.equal(rated.level, 'complex');
-  assert.equal(rated.segments, 5);
-  assert.match(rated.advice, /no penalty/i);
-  assert.ok(rated.conditions >= 6);
-  assert.equal(ordersComplexity('Guard smashes. Otherwise strike. Drink when LOW. Skip the bruiser. Buy a buckler. Rest at the bench when tired.').level, 'moderate');
+test('the orders size states words and tokens, and marks estimated tokens', () => {
+  assert.deepEqual(ordersSize('   '), { words: 0, tokens: 0, exact: true, label: '0 words', note: '' });
+  const text = 'Quick strike every turn, except: guard against a SMASH.';
+  const estimate = ordersSize(`  ${text}\n`);
+  assert.equal(estimate.words, 9);
+  assert.equal(estimate.tokens, estimateTokens(text));
+  assert.equal(estimate.exact, false);
+  assert.equal(estimate.label, `9 words · about ${estimate.tokens} tokens`);
+  assert.match(estimate.note, /estimated/i);
+  // A model's count is used only for the text it counted.
+  const counted = ordersSize(text, { text, tokens: 13, by: 'Qwen 2.5 · 3B' });
+  assert.deepEqual([counted.tokens, counted.exact, counted.label, counted.note], [13, true, '9 words · 13 tokens', 'Tokens counted by Qwen 2.5 · 3B.']);
+  assert.equal(ordersSize(`${text} Rest.`, { text, tokens: 13, by: 'Qwen 2.5 · 3B' }).exact, false, 'A count for older text is not shown as exact');
+  assert.equal(ordersSize('Retreat!', { text: 'Retreat!', tokens: 1, by: 'x' }).label, '1 word · 1 token');
+  // The size never rates or rewrites the orders.
+  for (const orders of [...Object.values(PRESETS), ...Object.values(TUTORIAL_PRESETS)]) assert.deepEqual(Object.keys(ordersSize(orders)), ['words', 'tokens', 'exact', 'label', 'note']);
 });
 
 test('a turn plays back as the decision, then each event in order, with matching cues and floating numbers', () => {

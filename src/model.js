@@ -42,6 +42,17 @@ export class LocalModel {
     this.model = model;
   }
   decide(payload) { return this.request('decide', payload, DECISION_LIMIT_MS); }
+  /** Tokens in `text` by the loaded model's tokenizer. Unlike other requests, a slow or failed count leaves the model loaded. */
+  countTokens(text) {
+    if (!this.ready || !this.worker) return Promise.reject(new Error('No model is loaded.'));
+    const id = ++this.sequence;
+    return new Promise((resolve, reject) => {
+      const job = { resolve: result => resolve(result.tokens), reject };
+      job.timeout = setTimeout(() => { this.pending.delete(id); reject(new Error('Counting tokens took too long.')); }, 5000);
+      this.pending.set(id, job);
+      this.worker.postMessage({ id, type: 'count', payload: { text } });
+    });
+  }
   dispose(message = 'Model unloaded.') {
     this.ready = false;
     this.worker?.terminate();

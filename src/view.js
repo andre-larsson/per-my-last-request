@@ -273,23 +273,28 @@ export function verdictHtml(verdict) {
   return `<span class="rubber ${verdict.tone}" aria-hidden="true">${escapeHtml(verdict.stamp)}</span><div class="verdict-body"><h3>${escapeHtml(verdict.title)}</h3><p>${escapeHtml(verdict.text)}</p>${medals}<p class="chips">${tally}</p><p class="verdict-hint">${escapeHtml(verdict.hint)}</p></div>`;
 }
 
-// Words that turn an instruction into a condition or a branch. Each one is another thing a small model must track.
-const CONDITION_WORDS = /\b(if|when|whenever|unless|until|while|after|before|otherwise|except|instead|only|preferably|but)\b/gi;
 /**
- * How demanding the orders are for a small local model. A reading aid only: it never changes how a trial is played.
- * Instructions are sentences or lines; conditions are branching words such as "when" or "otherwise".
+ * A rough token count, used until a loaded model counts the tokens itself. Fitted to the Qwen 2.5 tokenizer on ten
+ * sample orders (2026-11-14): within 15% for plain sentences, up to 25% low for terse lists in capitals.
  */
-export function ordersComplexity(text) {
+export const estimateTokens = text => {
+  const clean = String(text || '').trim();
+  return clean ? Math.round(clean.split(/\s+/).length * 1.25 + 1) : 0;
+};
+/**
+ * The size of the orders: words, and tokens (the pieces of text a model reads). Only facts: it makes no claim about
+ * how well a model will follow the orders. `counted` is `{ text, tokens, by }` from a loaded model's tokenizer; it is
+ * used only while it matches the text, and otherwise the tokens are an estimate and say so.
+ */
+export function ordersSize(text, counted = null) {
   const clean = String(text || '').trim();
   const words = clean ? clean.split(/\s+/).length : 0;
-  const instructions = clean.split(/[.!?;\n]+/).filter(part => part.trim().split(/\s+/).filter(Boolean).length >= 2).length;
-  const conditions = (clean.match(CONDITION_WORDS) || []).length;
-  const score = instructions + conditions + Math.floor(words / 40);
-  const level = score <= 7 ? 'simple' : score <= 11 ? 'moderate' : 'complex';
-  const advice = {
-    simple: 'Short and plain. Small models follow orders like these best.',
-    moderate: 'Manageable. Small models sometimes drop a rule or two at this length.',
-    complex: 'Small local models may lose track of this many rules and conditions. There is no penalty; expect the hero to miss some of them.',
-  }[level];
-  return { words, instructions, conditions, score, level, label: level[0].toUpperCase() + level.slice(1), segments: Math.min(5, Math.max(words ? 1 : 0, Math.ceil(score / 3))), advice };
+  const exact = Boolean(counted) && counted.text === clean && Number.isInteger(counted.tokens);
+  const tokens = exact ? counted.tokens : estimateTokens(clean);
+  if (!clean) return { words, tokens: 0, exact: true, label: '0 words', note: '' };
+  return {
+    words, tokens, exact,
+    label: `${plural(words, 'word')} · ${exact ? '' : 'about '}${plural(tokens, 'token')}`,
+    note: exact ? `Tokens counted by ${counted.by}.` : 'Tokens estimated from the length. A loaded model counts them exactly.',
+  };
 }

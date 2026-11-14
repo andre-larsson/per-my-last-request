@@ -41,8 +41,22 @@ async function chooseOnCpu(payload) {
   const raw = (typeof generated === 'string' ? generated : generated.at(-1).content).trim();
   return { raw, elapsed: performance.now() - start, backend: 'transformers.js-wasm', ordersReceived: payload.orders, forks };
 }
+// Tokens in `text` by the loaded model's own tokenizer. WebLLM 0.2.88 has no public call for this, so it reads the
+// tokenizer inside the loaded pipeline. The import is pinned; if that changes, counting fails and the game keeps its estimate.
+async function countTokens(text) {
+  if (generator) return generator.tokenizer.encode(text, { add_special_tokens: false }).length;
+  const tokenizer = engine?.loadedModelIdToPipeline?.get(loadedModel)?.tokenizer;
+  if (!tokenizer) throw new Error('This model cannot count tokens.');
+  return (await tokenizer.encode(text)).length;
+}
 self.onmessage = async ({ data }) => {
   const { id, type, payload } = data;
+  // Counting is a quick tokenizer call that never touches generation, so it may run while a decision is in progress.
+  if (type === 'count') {
+    try { self.postMessage({ id, type: 'result', result: { tokens: await countTokens(payload.text) } }); }
+    catch (error) { self.postMessage({ id, type: 'error', error: error instanceof Error ? error.message : String(error) }); }
+    return;
+  }
   if (busy) { self.postMessage({ id, type: 'error', error: 'The model is already processing a request.' }); return; }
   busy = true;
   try {
