@@ -104,12 +104,122 @@ const chips = entry => deltas(entry).map(d => `<span class="chip ${d.good ? 'gai
 export const SOURCE_LABEL = { llm: 'LLM chose', auto: 'No choice', manual: 'You chose' };
 const sourceLabel = source => SOURCE_LABEL[source] || source;
 
-export function lastMoveHtml(game, seconds = null) {
+/** The turn's events as lines, each marked with who acted: the hero, the opponent, or the course itself. Lines from `upto` on are laid out but not shown yet. */
+const eventLines = (entry, upto) => entry.events?.length
+  ? entry.events.map((event, i) => `<li class="actor-${event.actor}${i >= upto ? ' pending' : i === upto - 1 && Number.isFinite(upto) ? ' now' : ''}">${escapeHtml(event.text)}</li>`).join('')
+  : `<li class="actor-world">${escapeHtml(entry.detail)}</li>`;
+
+/**
+ * The latest turn, under the controls. During playback it fills in with the stage: `upto` events shown so far.
+ * `fresh` slides the card in, for the first time a turn appears.
+ */
+export function lastMoveHtml(game, seconds = null, { upto = Infinity, fresh = true } = {}) {
   const entry = game.log.at(-1);
   if (!entry) return '';
-  const tone = entry.after.hp < entry.before.hp ? 'bad' : entry.after.stamps > entry.before.stamps ? 'good' : 'plain';
+  const done = upto >= (entry.events?.length ?? 0);
+  const tone = !done ? 'plain' : entry.after.hp < entry.before.hp ? 'bad' : entry.after.stamps > entry.before.stamps ? 'good' : 'plain';
   const timing = entry.source === 'llm' && seconds !== null ? ` · ${seconds.toFixed(1)} s` : '';
-  return `<div class="move tone-${tone}"><p class="move-head"><span class="section-label">Turn ${entry.turn} · ${escapeHtml(sourceLabel(entry.source))}${timing}</span></p><p class="move-action">${escapeHtml(entry.label)}</p><p class="move-detail">${escapeHtml(entry.detail)}</p><p class="chips">${chips(entry)}</p></div>`;
+  return `<div class="move tone-${tone}${fresh ? ' fresh' : ''}"><p class="move-head"><span class="section-label">Turn ${entry.turn} · ${escapeHtml(sourceLabel(entry.source))}${timing}</span></p><p class="move-action">${escapeHtml(entry.label)}</p><ul class="move-lines">${eventLines(entry, upto)}</ul><p class="chips${done ? '' : ' pending'}">${chips(entry)}</p></div>`;
+}
+
+// ---------------------------------------------------------------------------
+// Turn playback. The engine resolves a turn at once; the interface then shows it as a few beats:
+// the decision first, then each event in the order the engine resolved it. The model can already
+// work on the next turn while these play, so its thinking time is mostly hidden behind them.
+
+/** Playback speeds, as multipliers on the beat durations below. */
+export const PACES = { slow: 1.6, normal: 1, fast: 0.5 };
+export const PACE_ORDER = ['normal', 'fast', 'slow'];
+/** Beat durations at normal pace, in milliseconds. `consider` is the least time the options stay up before a model's choice is revealed. */
+export const BEAT_MS = { consider: 1400, choice: 1100, own: 600, event: 750, perWord: 45, big: 1300 };
+
+// The events after which the stage shows the new situation (a new stop, a beaten or abandoned opponent, an ended trial).
+const SCENE_CHANGES = new Set(['enter', 'coins', 'camp', 'defeat', 'retreat', 'lost', 'timeout', 'finish']);
+const BIG_MOMENTS = new Set(['defeat', 'stamp', 'champion', 'lost', 'timeout', 'finish']);
+const WALKS = new Set(['advance', 'depart']);
+// What the hero says while a turn plays out. Short, so it fits a speech bubble on the portrait.
+const SHOUTS = { quick: 'Quick strike!', heavy: 'Heavy strike!', guard: 'Guard!', potion: 'Potion.', retreat: 'Retreat!', advance: 'Onward.', depart: 'Onward.', medic: 'Medic!', buy_sword: 'Sword, please.', buy_buckler: 'Buckler, please.', buy_potion: 'Potion, please.', rest: 'Sitting down.', finish: 'Done. Pay me.' };
+export const shoutFor = action => SHOUTS[action] || 'Right.';
+
+function soundsFor(event) {
+  switch (event.kind) {
+    case 'strike': return [event.style === 'heavy' ? 'heavy' : 'strike'];
+    case 'foe-hit': return ['hurt'];
+    case 'foe-blocked': return ['block'];
+    case 'foe-idle': return ['idle'];
+    case 'champion': return ['stamp'];
+    case 'buy': return ['coins'];
+    case 'rest': return ['heal'];
+    case 'timeout': return ['lost'];
+    case 'finish': return ['won'];
+    default: return [event.kind];
+  }
+}
+const snapshot = s => ({ hp: s.hp, stamina: s.stamina, potions: s.potions, coins: s.coins, stamps: [...s.stamps], champion: s.champion, foeHp: s.enemy ? s.enemy.hp : null });
+/** Floating numbers for one beat: what changed on each card since the beat before. */
+function effects(prev, at, kind) {
+  const fx = [];
+  const hp = at.hp - prev.hp;
+  if (hp) fx.push({ card: 'hero', tone: hp < 0 ? 'loss' : 'gain', text: `${hp < 0 ? '−' : '+'}${Math.abs(hp)}` });
+  if (prev.foeHp !== null && at.foeHp !== null && at.foeHp < prev.foeHp) fx.push({ card: 'foe', tone: 'loss', text: `${kind === 'counter' ? 'Counter ' : ''}−${prev.foeHp - at.foeHp}` });
+  const coins = at.coins - prev.coins;
+  if (coins) fx.push({ card: 'hero', tone: 'coin', text: `${coins > 0 ? '+' : '−'}${Math.abs(coins)} coins` });
+  return fx;
+}
+
+/**
+ * One resolved turn as beats. `before` is the state the decision was made in; `entry` is the log entry it produced.
+ * Each beat says who acts, what to print, which cue to play, what floats up from the cards, and how long it holds.
+ */
+export function turnBeats(before, entry) {
+  const start = snapshot(before);
+  const own = entry.source === 'manual' || entry.source === 'auto';
+  const walking = WALKS.has(entry.action);
+  const beats = [{
+    kind: 'choice', actor: 'hero', text: entry.label, source: entry.source, action: entry.action,
+    sounds: entry.source === 'auto' ? [walking ? 'walk' : 'choose'] : walking ? ['choose', 'walk'] : ['choose'],
+    ms: own ? BEAT_MS.own : BEAT_MS.choice, scene: false, at: start, fx: [],
+  }];
+  let prev = start;
+  let foeArt = before.enemy ? TILE_ART[before.position] : null;
+  for (const event of entry.events || []) {
+    const words = event.text.split(/\s+/).length;
+    if (event.kind === 'enter') foeArt = TILE_ART[event.position];
+    beats.push({
+      kind: event.kind, actor: event.actor, text: event.text, sounds: soundsFor(event),
+      ms: BIG_MOMENTS.has(event.kind) ? BEAT_MS.big : BEAT_MS.event + BEAT_MS.perWord * words,
+      scene: SCENE_CHANGES.has(event.kind), at: event.at, fx: effects(prev, event.at, event.kind),
+      art: event.actor === 'hero' ? 'hero' : event.actor === 'foe' || event.kind === 'enter' || event.kind === 'defeat' ? foeArt : null,
+    });
+    prev = event.at;
+  }
+  return beats;
+}
+
+/**
+ * The state the stage shows at beat `index`: the old situation with the numbers as they stood at that beat,
+ * or the new situation once the scene has changed. The last beat always shows the engine's final state.
+ */
+export function displayAt(before, after, beats, index) {
+  if (index >= beats.length - 1) return after;
+  const base = beats.slice(1, index + 1).some(beat => beat.scene) ? after : before;
+  const at = beats[index].at;
+  return { ...base, turn: after.turn, hp: at.hp, stamina: at.stamina, potions: at.potions, coins: at.coins, stamps: at.stamps, champion: at.champion, enemy: base.enemy && { ...base.enemy, hp: at.foeHp ?? base.enemy.hp } };
+}
+
+const CHOSE = { llm: 'The hero chose', manual: 'You chose', auto: 'No choice' };
+/** The play-by-play under the fighters. Every line is laid out from the start, so the box keeps its height while lines appear. */
+export function turnFeedHtml({ entry, beats, offered, index }, seconds = null) {
+  const passed = offered.filter(action => action.id !== entry.action);
+  const timing = entry.source === 'llm' && seconds !== null ? ` · ${seconds.toFixed(1)} s` : '';
+  const head = `<p class="feed-head"><span>Turn ${entry.turn} · ${CHOSE[entry.source] || entry.source}${timing}</span></p>`;
+  const choice = `<p class="feed-choice${index === 0 ? ' now' : ''}"><strong>${escapeHtml(entry.label)}</strong>${passed.length ? `<span class="feed-passed"><span>instead of</span>${passed.map(action => `<s>${escapeHtml(action.label)}</s>`).join('')}</span>` : ''}</p>`;
+  const lines = beats.slice(1).map((beat, i) => {
+    const state = i + 1 < index ? ' shown' : i + 1 === index ? ' shown now' : '';
+    const face = beat.art ? `<img src="${artUrl(beat.art)}" alt="" onerror="this.remove()">` : beat.actor === 'world' ? '<b aria-hidden="true">★</b>' : '';
+    return `<li class="beat actor-${beat.actor}${state}"><span class="face" aria-hidden="true">${face}</span><span>${escapeHtml(beat.text)}</span></li>`;
+  }).join('');
+  return `${head}${choice}${lines ? `<ol class="feed-beats">${lines}</ol>` : ''}`;
 }
 
 export function journalHtml(log) {

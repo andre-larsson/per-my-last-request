@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { serve, ROOT } from './serve.mjs';
+import { findChrome } from './chrome.mjs';
 
 // A dedicated browser profile keeps model downloads cached without changing a personal profile.
 const profile = join(ROOT, 'artifacts', 'play-browser-profile');
@@ -14,8 +15,9 @@ if (process.platform === 'linux') flags.push('--enable-unsafe-webgpu', '--use-an
 if (headless) flags.push('--headless=new', '--disable-vulkan-surface', url);
 else flags.push(`--app=${url}`);
 console.log(`Per My Last ReQuest → ${url}`);
+const browser = findChrome();
 console.log('Opening a dedicated Chrome window. Close it or press Ctrl+C to stop.');
-const chrome = spawn(process.env.CHROME || 'google-chrome', flags, { stdio: 'ignore' });
+const chrome = spawn(browser, flags, { stdio: 'ignore' });
 let stopping = false;
 function stop() {
   if (stopping) return;
@@ -24,7 +26,7 @@ function stop() {
   server.closeAllConnections();
   server.close();
 }
-chrome.once('error', error => { console.error(`Could not open Chrome: ${error.message}. Open ${url} in your browser instead. Press Ctrl+C when finished.`); });
+chrome.once('error', error => { console.error(`Could not open Chrome (${browser}): ${error.message}. Open ${url} in your browser instead, or set CHROME=/path/to/chrome. Press Ctrl+C when finished.`); });
 chrome.once('exit', () => stop());
 process.once('SIGINT', stop);
 process.once('SIGTERM', stop);

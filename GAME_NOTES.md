@@ -52,9 +52,29 @@ Decisions made without a playtester. Overrule freely.
 - **The map moved below the fold** on laptop screens. It is context, and the stage carries the action.
 - **Editing orders mid-trial** now restarts the trial on the next Run or One decision (before, One decision silently kept the old orders). A notice under the letter says so.
 - **Switching assignment** restores the orders last written for it, instead of overwriting them with the first example.
-- **Pause between decisions** in a run is 700 ms (was 350 ms), so a person can follow. `DECISION_PAUSE_MS` in `src/app.js`.
+- **Pause between decisions**: replaced by turn playback (below). The old fixed 700 ms pause is gone.
 - **Restart is hidden at turn 0.** There is nothing to restart.
 - **Model loading has no total time limit.** It fails after five minutes without a progress report (`LOAD_SILENCE_MS` in `src/model.js`). The old 15-minute cap cut off a 1.7 GB download at 84% on a slow connection.
+
+## Turn playback (added 2026-11-14, provisional until playtested)
+
+User request: make each decision and its consequences easy to follow, with sound, and hide the model's thinking time behind the time spent reading. The previous flow is tagged `before-turn-playback`.
+
+- **The engine resolves a turn at once; the stage replays it.** `applyAction` now logs `events` per turn (actor hero/foe/world, kind, text, and the numbers at that moment). `detail` is still the joined sentence; one wording change: a defeat now reads "X defeated." before "Earned a training stamp". The prompt is unchanged (it never included the log).
+- **Beats** (`turnBeats`, `displayAt`, `turnFeedHtml` in `src/view.js`): the choice, then each event in engine order. The stage shows the old situation with each beat's numbers until something changes the scene (new stop, defeat, retreat, end), then the new one. Turn counter advances on the choice.
+- **What shows a beat:** the hero's speech bubble with the action ("Guard!"); a yellow glow on whoever acts; the opponent's move box switches to "Now" and flashes when it acts; floating numbers (HP, counter, coins); a play-by-play under the fighters with small portraits per line and the passed-over options struck through; the options panel stamps "Chosen" and strikes the rest; the turn card under the controls fills in line by line.
+- **Durations at normal pace** (`BEAT_MS`): options stay up at least 1.4 s before a model's choice is revealed; the choice holds 1.1 s (0.6 s for the player's own or a forced move); an event 0.75 s + 45 ms per word; defeat, stamp, champion, win and loss 1.3 s. **Pace** cycles Normal → Fast (×0.5) → Slow (×1.6), stored per browser. A fight turn takes about 3.5–5 s at normal pace. **Skip** ends a turn's playback.
+- **The model reads ahead.** During a run, the next decision is requested as soon as a turn resolves. It is used only for the same trial (epoch) and state (revision); Pause, Restart, mode or model change drop it. Requests queue (the worker takes one at a time). Pause lets the turn on screen finish. "One decision" never reads ahead. Each decision records `preparedAhead` and `waitedMs` (visible wait beyond the 1.4 s minimum).
+- **Measured with the real model** (Qwen 2.5 3B, RTX 4090, careful orders, normal pace): 24 of 26 circuit decisions were ready before their options went up; the hero visibly waited 0 ms in total; the circuit took 122 s on screen (the old flow took roughly 26 × (0.7 s model + 0.7 s pause) plus forced moves, about 40 s). Slower GPUs are unmeasured; `waitedMs` in the exported report shows it.
+- **Manual sandbox** plays turns back too, with a shorter choice beat; no new action can be clicked until the turn finishes or is skipped.
+- **Sound** (`src/sound.js`): synthesized WebAudio, no files, on by default with a ♪ toggle stored per browser. A rubber-stamp thunk for every decision (the guild runs on paperwork), whoosh-and-thwack strikes, a wooden knock for raising a guard, a muted clang when a hit lands on the guard, a low thud when the hero is hurt, a soft huff when the opponent idles, low "heartbeat" pulses when a SMASH is announced, chimes for healing, coins, stamps, win and loss. Kept low and short; no loops. Offline levels: −25 to −37 dB RMS for most cues, footsteps and the idle huff quieter, peaks ≤ 0.42.
+- **Height:** the play-by-play and the situation text share one grid cell, so the stage is as tall as the taller of the two. This leaves some blank stage under the situation text after a busy turn, but the Run/Pause button does not jump between turns.
+
+## Browser setup guide (added 2026-11-14)
+
+- **Get WebGPU on Windows, Mac or Linux** sits under the model status in **Who plays the hero?**. It is a collapsed four-line guide: Windows, Mac, Linux, and "still not working?". It opens by itself when the device check finds no WebGPU or only software graphics, and the blocked status line points to it. The README has the full table and the Linux command line.
+- Browser versions come from the gpuweb implementation-status wiki (last edited 2026-10-02). Only Chrome on Linux with NVIDIA (X11, `npm run play` flags) is tested. Update both the guide and the README table when browsers ship (Firefox on Linux is expected in 2026).
+- `npm run play` now finds Chrome (falling back to Edge) in the standard macOS and Windows install folders. That path is untested on those systems; `CHROME=` still overrides it.
 
 ## Art
 
@@ -74,7 +94,8 @@ Style preamble, used at the start of every request (full requests in `assets-src
 - `npm run test:llm -- --circuit`: after the tutorial checks, the real model plays the full circuit with the careful example orders; the per-decision record goes to `artifacts/llm-circuit-trial.json`. Evidence, not a gate.
 - `node tools/probe.mjs`: the real model answers 13 fixed circuit situations (built by the engine, prompted by the real protocol and worker) without playing a trial. About a minute with the model cached. `PROBE_ORDERS='orders A || orders B'` compares variants. Use it before changing prompt wording or example orders.
 
-- `node tools/shots.mjs [dir]`: screenshots of setup, tutorial fight, win and loss, and circuit start, smash, counter, armorer, champion, win, low health and death at 1440, 1180 and 390 px, using the Manual sandbox. Also lists rendered text under 12 px and any horizontal overflow.
+- `node tools/shots.mjs [dir]`: screenshots of setup, tutorial fight, win and loss, and circuit start, smash, mid-turn playback (held on the blocked charge), counter, armorer, champion, win, low health and death at 1440, 1180 and 390 px, using the Manual sandbox. Also lists rendered text under 12 px and any horizontal overflow. It selects mode buttons as `button[data-mode=…]`: `<body>` carries `data-mode` too.
+- `QuestDemo.setPace('instant')` turns playback off (tools use it for fast clicking); `QuestDemo.hold(n)` stops playback on beat n, `hold(null)` releases it; `QuestDemo.skip()`. The snapshot reports `phase`, `playing`, `beat`, `beatKinds`, `awaitingModel`, `modelBusy`.
 - `python3 tools/art.py`: rebuilds `assets/art/` from `assets-src/raw/`.
 - `npm run test:browser`: manual play through the real controls, then the LLM-mode controls against a stub worker the test injects (no inference). `npm run test:llm -- --full`: real inference; `QUEST_LOAD_MINUTES=60` allows a slow first download, and `QUEST_PROFILE=artifacts/llm-test-profile` keeps the downloaded model between test runs. Results are in `VERIFICATION.md`.
 
@@ -92,6 +113,11 @@ The engine is deterministic: no randomness, fixed course. Model output is not gu
 
 - What did you look at first on the setup screen?
 - Could you finish the first assignment without opening the Rulebook?
-- Is 700 ms between decisions too slow once you know the game?
+- Turn playback: can you tell, without reading the report, what the hero chose, what the opponent did, and whether the guard paid off? Which cue told you most: the speech bubble, the struck-through options, the play-by-play, or the sounds?
+- Is normal pace readable without feeling slow? Which pace did you settle on, and did you use Skip?
+- Do any sounds grate after a full circuit (the stamp thunk plays every decision)? Is the SMASH warning noticeable?
+- On your machine, does the hero ever visibly wait for the model mid-run ("still reading your orders")?
+- Does the blank stage space under the situation text after a busy turn bother you more than a jumping Pause button would?
 - On a laptop, do you miss the map while watching a run?
+- On Windows or Mac: does `npm run play` open a browser, and does the model load? If WebGPU was missing, did the setup guide get you going?
 - Does "Run again" after a loss feel right, given that it restarts immediately?

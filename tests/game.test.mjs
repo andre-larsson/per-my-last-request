@@ -219,3 +219,25 @@ test('observations expose actual resource counts and keep commands out of model 
   assert.match(messages[1].content, /quick: Quick strike/);
   assert.equal(messages[1].content.includes('"command"'), false);
 });
+test('each turn records its events in order, with the numbers as they stood at each one', () => {
+  const boar = play(newGame('circuit'), 'depart', 'quick', 'quick', 'advance', 'advance');
+  const guarded = applyAction(boar, 'guard').log.at(-1);
+  assert.deepEqual(guarded.events.map(e => [e.actor, e.kind]), [['hero', 'guard'], ['foe', 'foe-blocked'], ['hero', 'counter']]);
+  assert.deepEqual(guarded.events.map(e => [e.at.hp, e.at.foeHp]), [[37, 18], [33, 18], [33, 8]], 'the charge lands before the counter');
+  const rat = play(newGame('circuit'), 'depart', 'quick', 'quick').log.at(-1);
+  assert.deepEqual(rat.events.map(e => e.kind), ['strike', 'defeat', 'stamp'], 'the opponent falls, then the stamp is earned');
+  assert.deepEqual(rat.events.map(e => e.at.stamps.length), [0, 0, 1]);
+  assert.equal(play(newGame('circuit'), 'depart').log[0].events[0].kind, 'enter');
+});
+test('every logged turn ends on the numbers the state holds, and its events rebuild the log sentence', () => {
+  for (const policy of [parry, brute, reckless]) {
+    let s = newGame('circuit');
+    while (availableActions(s).length) {
+      s = applyAction(s, policy(s), 'rules-test');
+      const entry = s.log.at(-1);
+      assert.equal(entry.detail, entry.events.map(e => e.text).join(' ') || 'Moved along the course.');
+      const last = entry.events.at(-1)?.at;
+      if (last) assert.deepEqual([last.hp, last.stamina, last.potions, last.coins, last.stamps.length, last.champion], [s.hp, s.stamina, s.potions, s.coins, s.stamps.length, s.champion], `turn ${s.turn}`);
+    }
+  }
+});

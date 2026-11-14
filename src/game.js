@@ -127,29 +127,30 @@ export function availableActions(s) {
   return actions;
 }
 
-function enterTile(s, messages) {
+function enterTile(s, say) {
   const tile = currentTile(s);
   s.resolved = false;
   if (tile.kind === 'enemy' && !(tile.boss && s.champion)) {
     const bonus = s.lap - 1;
     const routine = tile.routine.map(m => ({ ...m, damage: m.damage ? m.damage + bonus : 0 }));
     s.enemy = { name: tile.name, hp: tile.hp + bonus * 3, maxHp: tile.hp + bonus * 3, damage: tile.damage + bonus, armor: tile.armor, agile: !!tile.agile, stamp: tile.stamp || null, optional: !!tile.optional, boss: !!tile.boss, prize: tile.prize || 2, routine, step: 0 };
-    messages.push(`${tile.name} steps onto the course.`);
+    say('world', 'enter', `${tile.name} steps onto the course.`, { position: s.position });
   }
-  if (tile.kind === 'purse' && !s.purseTaken) { s.coins += 6; s.purseTaken = true; messages.push('Collected 6 guild coins.'); }
+  if (tile.kind === 'purse' && !s.purseTaken) { s.coins += 6; s.purseTaken = true; say('world', 'coins', 'Collected 6 guild coins.'); }
   if (tile.kind === 'camp' && s.turn > 0) {
-    if (assignmentReady(s)) messages.push('All requirements met. Submit the assignment to finish.');
-    else { s.lap++; s.benchUsed = false; messages.push('Back at camp. Another lap is possible, but opponents grow stronger.'); }
+    if (assignmentReady(s)) say('world', 'camp', 'All requirements met. Submit the assignment to finish.');
+    else { s.lap++; s.benchUsed = false; say('world', 'camp', 'Back at camp. Another lap is possible, but opponents grow stronger.'); }
   }
 }
 
-function defeat(s, messages) {
+function defeat(s, say) {
   const e = s.enemy;
-  s.coins += e.prize ?? (e.boss ? 8 : 2);
-  if (e.stamp && !s.stamps.includes(e.stamp)) { s.stamps.push(e.stamp); messages.push(`Earned a training stamp (${s.stamps.length}/${s.level === 'tutorial' ? 1 : 3}).`); }
-  if (e.boss) { s.champion = true; messages.push('Champion defeated. Return to camp with all three stamps.'); }
+  const prize = e.prize ?? (e.boss ? 8 : 2);
+  s.coins += prize;
   if (e.optional) s.prizeWon = true;
-  messages.push(`${e.name} defeated.${e.optional ? ` Prize: ${e.prize ?? 2} coins.` : ''}`);
+  say('world', 'defeat', `${e.name} defeated.${e.optional ? ` Prize: ${prize} coins.` : ''}`);
+  if (e.stamp && !s.stamps.includes(e.stamp)) { s.stamps.push(e.stamp); say('world', 'stamp', `Earned a training stamp (${s.stamps.length}/${s.level === 'tutorial' ? 1 : 3}).`); }
+  if (e.boss) { s.champion = true; say('world', 'champion', 'Champion defeated. Return to camp with all three stamps.'); }
   s.enemy = null;
   s.resolved = true;
 }
@@ -160,6 +161,13 @@ export function applyAction(state, actionId, source = 'manual') {
   const s = structuredClone(state);
   const at = currentTile(s).name;
   const messages = [];
+  // The same turn as structured events, in the order they happened, each with the numbers at that moment.
+  // The interface plays a turn back from these; `detail` keeps the plain sentence for the log and reports.
+  const events = [];
+  const say = (actor, kind, text, extra = {}) => {
+    messages.push(text);
+    events.push({ actor, kind, text, ...extra, at: { hp: s.hp, stamina: s.stamina, potions: s.potions, coins: s.coins, stamps: [...s.stamps], champion: s.champion, foeHp: s.enemy ? s.enemy.hp : null } });
+  };
   const before = { hp: s.hp, stamina: s.stamina, potions: s.potions, coins: s.coins, stamps: s.stamps.length };
   s.turn++;
   s.revision++;
@@ -170,7 +178,7 @@ export function applyAction(state, actionId, source = 'manual') {
     s.enemy = null;
     s.position = s.level === 'tutorial' && s.position === 1 ? 11 : (s.position + 1) % TILES.length;
     s.stamina = Math.min(4, s.stamina + 1);
-    enterTile(s, messages);
+    enterTile(s, say);
   } else if (command.type === 'attack') {
     const e = s.enemy;
     const heavy = command.style === 'heavy';
@@ -179,42 +187,42 @@ export function applyAction(state, actionId, source = 'manual') {
     s.stamina = heavy ? s.stamina - 2 : Math.min(4, s.stamina + 1);
     e.hp = Math.max(0, e.hp - damage);
     const note = [heavy && e.agile && kind !== 'winded' ? `${e.name} dodged most of the blow` : '', kind === 'brace' ? `${e.name}'s shield took half` : ''].filter(Boolean).map(n => `; ${n}`).join('');
-    messages.push(`Dealt ${damage} damage${note}.`);
-    if (e.hp === 0) defeat(s, messages);
+    say('hero', 'strike', `Dealt ${damage} damage${note}.`, { style: command.style, damage });
+    if (e.hp === 0) defeat(s, say);
   } else if (command.type === 'guard') {
     guarding = true;
     s.stamina = Math.min(4, s.stamina + 1);
-    messages.push('Raised a guard.');
+    say('hero', 'guard', 'Raised a guard.');
   } else if (command.type === 'heal') {
     const healed = Math.min(POTION_HP, s.maxHp - s.hp);
     s.hp += healed;
     s.potions--;
     s.drank++;
-    messages.push(`Used a potion for ${healed} HP.`);
+    say('hero', 'heal', `Used a potion for ${healed} HP.`, { source: 'potion' });
   } else if (command.type === 'retreat') {
     s.hp = Math.max(0, s.hp - 2);
-    messages.push(`Left ${s.enemy.name} behind. Lost 2 HP.`);
+    say('hero', 'retreat', `Left ${s.enemy.name} behind. Lost 2 HP.`);
     s.enemy = null;
     s.resolved = true;
   } else if (command.type === 'medic') {
     const healed = Math.min(MEDIC_HP, s.maxHp - s.hp);
     s.hp += healed;
     s.medicUsed = true;
-    messages.push(`The medic restored ${healed} HP.`);
+    say('hero', 'heal', `The medic restored ${healed} HP.`, { source: 'medic' });
   } else if (command.type === 'buy') {
     s.coins -= PRICES[command.item];
-    if (command.item === 'sword') { s.sword = SWORD_BONUS; messages.push(`Sword sharpened: +${SWORD_BONUS} damage on every strike.`); }
-    if (command.item === 'buckler') { s.buckler = BUCKLER_BLOCK; messages.push(`Bought a buckler: guard now blocks ${guardBlock(s)}.`); }
-    if (command.item === 'potion') { s.potions++; messages.push(`Bought a potion (${s.potions} carried).`); }
+    if (command.item === 'sword') { s.sword = SWORD_BONUS; say('hero', 'buy', `Sword sharpened: +${SWORD_BONUS} damage on every strike.`, { item: 'sword' }); }
+    if (command.item === 'buckler') { s.buckler = BUCKLER_BLOCK; say('hero', 'buy', `Bought a buckler: guard now blocks ${guardBlock(s)}.`, { item: 'buckler' }); }
+    if (command.item === 'potion') { s.potions++; say('hero', 'buy', `Bought a potion (${s.potions} carried).`, { item: 'potion' }); }
   } else if (command.type === 'rest') {
     const healed = Math.min(BENCH_HP, s.maxHp - s.hp);
     s.stamina = 4;
     s.hp += healed;
     s.benchUsed = true;
-    messages.push(`Recovered all stamina${healed ? ` and ${healed} HP` : ''}.`);
+    say('hero', 'rest', `Recovered all stamina${healed ? ` and ${healed} HP` : ''}.`);
   } else if (command.type === 'finish') {
     s.status = 'won';
-    messages.push('Assignment accepted. The guild is reluctantly impressed.');
+    say('world', 'finish', 'Assignment accepted. The guild is reluctantly impressed.');
   }
   if (s.enemy && command.type !== 'advance' && command.type !== 'retreat') {
     const e = s.enemy;
@@ -223,21 +231,23 @@ export function applyAction(state, actionId, source = 'manual') {
     const taken = guarding ? Math.max(0, raw - guardBlock(s)) : raw;
     s.hp = Math.max(0, s.hp - taken);
     if (m.kind === 'smash' && !guarding) s.bigHitsTaken++;
-    if (!announced(s)) messages.push(`${e.name} retaliated for ${taken} damage.`);
-    else if (!raw) messages.push(m.kind === 'brace' ? `${e.name} hid behind its guard.` : `${e.name} stopped to catch its breath.`);
-    else messages.push(guarding ? `${e.name}'s ${m.name} hit the guard: ${taken} damage got through.` : `${e.name}'s ${m.name} hit for ${taken} damage.`);
+    const blow = { move: m.kind, taken };
+    if (!announced(s)) say('foe', 'foe-hit', `${e.name} retaliated for ${taken} damage.`, blow);
+    else if (!raw) say('foe', 'foe-idle', m.kind === 'brace' ? `${e.name} hid behind its guard.` : `${e.name} stopped to catch its breath.`, blow);
+    else if (guarding) say('foe', 'foe-blocked', `${e.name}'s ${m.name} hit the guard: ${taken} damage got through.`, blow);
+    else say('foe', 'foe-hit', `${e.name}'s ${m.name} hit for ${taken} damage.`, blow);
     e.step++;
     // A guarded smash leaves the opponent open: the hero counters at once, for the damage of a heavy strike.
     if (guarding && m.kind === 'smash' && s.hp > 0) {
       const counter = counterDamage(s);
       e.hp = Math.max(0, e.hp - counter);
-      messages.push(`Countered for ${counter} damage.`);
-      if (e.hp === 0) defeat(s, messages);
+      say('hero', 'counter', `Countered for ${counter} damage.`, { damage: counter });
+      if (e.hp === 0) defeat(s, say);
     }
   }
-  if (s.hp === 0) { s.status = 'lost'; messages.push('Trial failed: the hero ran out of health. Revise the orders and retry.'); }
-  if (s.status !== 'won' && s.turn >= s.turnLimit) { s.status = 'lost'; messages.push(`Trial failed: the guild closed after ${s.turnLimit} turns. Revise the orders and retry.`); }
-  s.log.push({ turn: s.turn, at, action: choice.id, label: choice.label, detail: messages.join(' ') || 'Moved along the course.', source, before, after: { hp: s.hp, stamina: s.stamina, potions: s.potions, coins: s.coins, stamps: s.stamps.length } });
+  if (s.hp === 0) { s.status = 'lost'; say('world', 'lost', 'Trial failed: the hero ran out of health. Revise the orders and retry.'); }
+  if (s.status !== 'won' && s.turn >= s.turnLimit) { s.status = 'lost'; say('world', 'timeout', `Trial failed: the guild closed after ${s.turnLimit} turns. Revise the orders and retry.`); }
+  s.log.push({ turn: s.turn, at, action: choice.id, label: choice.label, detail: messages.join(' ') || 'Moved along the course.', events, source, before, after: { hp: s.hp, stamina: s.stamina, potions: s.potions, coins: s.coins, stamps: s.stamps.length } });
   return s;
 }
 

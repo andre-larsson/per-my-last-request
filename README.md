@@ -14,14 +14,41 @@ Requires Node 22 or newer. No npm install or API key is needed.
 npm run play
 ```
 
-This serves the game at **http://localhost:4173** and opens a dedicated Chrome game window. On Linux it supplies Vulkan/WebGPU flags for the prototype. Its separate profile and model cache live in ignored `artifacts/play-browser-profile/`; your personal browser profile is unchanged. Close the window or press Ctrl+C to stop.
+This serves the game at **http://localhost:4173** and opens a dedicated Chrome game window. It looks for Chrome in the usual place on Linux, macOS and Windows, and falls back to Edge on macOS and Windows. On Linux it supplies Vulkan/WebGPU flags for the prototype. Its separate profile and model cache live in ignored `artifacts/play-browser-profile/`; your personal browser profile is unchanged. Close the window or press Ctrl+C to stop. If no browser is found, it prints the address; open it in your own browser.
 
 Alternatively use `npm start` and open the URL in your own browser. Use `PORT=8080 npm run play` for another port. `CHROME=/path/to/chrome` overrides the browser executable.
+
+### Browser and GPU setup
+
+The local model needs WebGPU. Manual sandbox and the experimental CPU model work without it. The game checks for WebGPU when it opens; if it finds none, the guide **Get WebGPU on Windows, Mac or Linux** under **Who plays the hero?** opens with the short version of this table.
+
+| | Chrome / Edge | Firefox | Safari |
+|---|---|---|---|
+| **Windows** | 113+, on by default. Windows on ARM: enable `chrome://flags/#enable-unsafe-webgpu`. | 141+, on by default. | — |
+| **macOS** | 113+, on by default. | 147+ on Apple silicon. Intel Macs: Nightly only; use Chrome, Edge or Safari. | 26+, on by default. |
+| **Linux** | On by default in Chrome 144+ for Intel Gen12 and newer, and in Chrome 147+ for NVIDIA (driver 535.183.01+) on Wayland. Other setups: use `npm run play`, or see below. | Nightly only. Mozilla plans to ship on Linux in 2026. | — |
+
+To use your own Chrome on another Linux setup, close every Chrome window, then start it with the flags from the WebGPU status page and open the game:
+
+```sh
+google-chrome --enable-unsafe-webgpu --ozone-platform=x11 --use-angle=vulkan --enable-features=Vulkan,VulkanFromANGLE http://localhost:4173
+```
+
+If the game still reports no WebGPU, or reports software graphics:
+
+1. Turn on hardware acceleration. In Chrome and Edge: Settings → System → *Use graphics acceleration when available*. In Firefox: Settings → General → Performance.
+2. Update the graphics driver.
+3. Restart the browser and reload the game.
+4. Open `chrome://gpu` (or `about:support` in Firefox) and look for WebGPU. It should say hardware accelerated.
+
+Phones and tablets: Chrome on Android 12+ and Safari on iOS 26 have WebGPU, but WebGPU needs HTTPS or localhost, and this prototype serves plain HTTP on your computer. Phone play is not set up or tested.
+
+Only Chrome on Linux with an NVIDIA GPU (X11, `npm run play` flags) has been tested with this game. The rest of the table follows the [WebGPU implementation status page](https://github.com/gpuweb/gpuweb/wiki/Implementation-Status), last edited October 2026; check it for changes. A browser with WebGPU can still lack the GPU memory for a model; see the model sizes below.
 
 The screen has three numbered columns: **1 Write the orders**, **2 Watch the trial**, **3 Read the report**.
 
 1. The game checks WebGPU without downloading anything. The button under the stage names the selected model and its download size; click it to load. The initial download can take a few minutes, or much longer on a slow connection; loading stops only after five minutes without progress. **Play manually** skips the model and opens the Manual sandbox.
-2. Click **Run these orders**, or use **One decision** to inspect each action. The stage shows the hero and the current opponent or place; the panel under it shows the last move, the options on the table, and (under **What the hero is told this turn**) the exact text the model receives.
+2. Click **Run these orders**, or use **One decision** to inspect each action. The stage shows the hero and the current opponent or place; the panel under it shows the last move, the options on the table, and (under **What the hero is told this turn**) the exact text the model receives. Each turn plays back in beats: the options stay up while the hero weighs them, the choice is stamped and the others struck through, then the hero's action, the opponent's answer, any counter and any reward follow one at a time, each with its own sound. **Pace** (normal, fast, slow) and **♪** (sound on or off) sit beside the status line; **Skip** ends a turn's playback.
 3. Compare the two example orders, or write your own. If you edit the orders mid-trial, the next run or single decision restarts the trial with the new text.
 4. Read the report and optionally save its JSON.
 5. After the introductory assignment, choose **Next assignment** to try the full circuit. The two assignment tabs also let you switch directly. The **Rulebook** button lists every rule.
@@ -52,9 +79,10 @@ A browser supporting the WebGPU API may still lack a usable adapter or enough me
 - Browser inference in a dedicated Web Worker. Both backends generate a JSON action ID. CPU decoding is restricted to the offered JSON strings; GPU decoding uses WebLLM's JSON Schema support.
 - Strict parsing, a second engine-side legality check, retry without consuming turns on format errors, and stale-response rejection after pause/restart/controller changes.
 - Pause, single-step, reset, editable standing orders, local prompt persistence, and a report export.
+- Turn playback decoupled from the engine: a turn resolves at once, then the stage replays it beat by beat while the model already reads the next turn.
 - Responsive layouts for three, two and one columns. The circuit map is code-drawn SVG. Portraits are generated illustrations stored in `assets/art/` (requests in `assets-src/wanted-images.tsv`); a letter placeholder appears if one is missing. No external font dependencies.
 
-The simulation pauses during inference. The deadline counts game actions, not download or thinking time. When only one action is available, the game resolves it automatically and records `auto` as the source. All genuine choices in LLM mode go through the model. The course and combat rules stay fixed between retries. Model decisions are not guaranteed to repeat identically across model versions or devices.
+The simulation pauses during inference. The deadline counts game actions, not download or thinking time. During a run, the next decision is requested as soon as a turn resolves, so the model works while the player watches that turn play back; the reply is used only if it was asked for the same trial and the same game state, and Pause, Restart or a mode change drops it. The worker takes one request at a time. Each decision in the report records `preparedAhead` (ready before its options went up) and `waitedMs` (how long the hero visibly waited for the model beyond the time the options are always shown). When only one action is available, the game resolves it automatically and records `auto` as the source. All genuine choices in LLM mode go through the model. The course and combat rules stay fixed between retries. Model decisions are not guaranteed to repeat identically across model versions or devices.
 
 ## Model downloads and privacy
 
@@ -111,11 +139,11 @@ QUEST_LOAD_MINUTES=60 npm run test:llm -- --full   # allow a slow first download
 QUEST_PROFILE=artifacts/llm-test-profile npm run test:llm -- --full   # keep the test browser profile, so a download is not repeated
 ```
 
-Rule tests need only Node. Browser tests need Google Chrome (`CHROME=/path/to/chrome` can override the executable). The UI smoke test uses a deterministic policy to exercise the real controls and complete the circuit; it is not an LLM benchmark. It then exercises the LLM-mode controls (load, thinking, a stale reply after Restart, unusable output, edited orders, pause) against a stub worker that the test injects; that part involves no inference either. `node tools/shots.mjs` saves review screenshots of every main state at three window sizes.
+Rule tests need only Node. Browser tests need Google Chrome (`CHROME=/path/to/chrome` can override the executable). The UI smoke test uses a deterministic policy to exercise the real controls and complete the circuit; it is not an LLM benchmark. It then exercises the LLM-mode controls (load, thinking, a stale reply after Restart, unusable output, edited orders, pause, turn playback with decisions prepared ahead, Pause during playback, Skip) against a stub worker that the test injects; that part involves no inference either. `node tools/shots.mjs` saves review screenshots of every main state at three window sizes.
 
 The LLM smoke test downloads the real baseline GPU model in an isolated browser and verifies a combat decision, then changes the standing orders and checks that the same situation produces a different action. `--full` additionally checks a complete model-controlled introductory assignment. `--cpu` selects the experimental CPU model. `--software-gpu` selects Qwen 0.5B with software WebGPU for a GPU-runtime diagnostic. `QUEST_MODEL` overrides the GPU model and stores its evidence in a separate model-named artifact directory. Test browser profiles are temporary and removed afterward.
 
-On Linux the hardware test uses Chrome's [documented headless Vulkan flags](https://developer.chrome.com/blog/supercharge-web-ai-testing). These apply only to its isolated test browser; it does not alter your existing browser profile or system settings. If the game reports no WebGPU adapter in your normal browser, use a WebGPU-enabled browser or select the CPU option.
+On Linux the hardware test uses Chrome's [documented headless Vulkan flags](https://developer.chrome.com/blog/supercharge-web-ai-testing). These apply only to its isolated test browser; it does not alter your existing browser profile or system settings. If the game reports no WebGPU adapter in your normal browser, see [Browser and GPU setup](#browser-and-gpu-setup) or select the CPU option.
 
 Screenshots and JSON reports go in ignored `artifacts/`. See `VERIFICATION.md` for the results actually obtained in this workspace.
 
@@ -129,3 +157,4 @@ This repository is local. No remote hosting or publication is configured.
 - [WebLLM JSON mode](https://github.com/mlc-ai/web-llm/blob/main/examples/json-mode/src/json_mode.ts)
 - [Pinned WebLLM model catalogue and GPU memory estimates](https://github.com/mlc-ai/web-llm/blob/v0.2.88/src/config.ts)
 - [WebGPU adapter information and limits](https://gpuweb.github.io/gpuweb/#gpuadapter)
+- [WebGPU implementation status by browser and OS](https://github.com/gpuweb/gpuweb/wiki/Implementation-Status)

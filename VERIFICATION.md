@@ -2,6 +2,24 @@
 
 Original prototype checks on 2026-11-13, with model-selection checks added on 2026-11-14. This file distinguishes game-rule checks, browser UI checks, and genuine model inference.
 
+## Browser setup guide (2026-11-14)
+
+- `npm run test:browser` passed. It now checks that a missing WebGPU opens the in-game setup guide, which covers Windows, Mac and Linux and names `npm run play`. It also checks that the blocked status line points to the guide and that the open guide fits at 360 px. Screenshot: `artifacts/webgpu-help-phone.png`. `npm test` still passes (50 tests).
+- The Chrome lookup in `npm run play` was checked only on this Linux host, plus a simulated Windows folder layout (it prefers Chrome, then Edge). It has not run on macOS or Windows.
+- The browser and OS support listed in the guide and README comes from the gpuweb implementation-status page. Only Chrome on Linux (NVIDIA, X11) was tested.
+
+## Turn playback (2026-11-14)
+
+Turns now resolve in the engine at once and are played back beat by beat; during a run the model reads the next turn while the current one plays (previous flow: git tag `before-turn-playback`). Details in `GAME_NOTES.md`.
+
+- `npm test` passed **50 tests**. New: each turn's events in order with the numbers at each moment; for three scripted circuit policies, every turn's last event matches the state and the events rebuild the log sentence; beats, cues and floating numbers for a guarded charge; the stage state at each beat (including a defeat changing the scene before the stamp arrives); the play-by-play markup. The prompt-pinning test for the introductory assignment still passes.
+- `npm run test:browser` passed. Manual sandbox: the guarded charge plays as choice → guard → blocked charge → counter, the stage keeps the old HP until the charge lands and the boar's HP until the counter, no action can be clicked mid-turn. Stub worker (no inference): the stub now refuses overlapping requests like the real worker, and none overlapped; with playback on, every model decision in a tutorial run was prepared during the previous turn's playback; Pause during playback lets the turn finish and drops the prepared reply; Continue asks again about the state on screen; Skip ends playback.
+- `node tools/shots.mjs` captured all states, plus a held mid-turn state, at three sizes: no text under 12 px, no overflow, no browser errors. Fixed a tool bug on the way: its `[data-mode="llm"]` selector matched `<body>`, so the "setup" shot had clicked the model load button.
+- **Real inference, hardware WebGPU (RTX 4090 host), Qwen 2.5 3B, normal pace:** `QUEST_PROFILE=artifacts/llm-test-profile npm run test:llm -- --full --circuit` passed. The introductory assignment was won as before, and the retreat orders still produced `retreat`. The full circuit with the careful example orders was **won with 1 HP on turn 32**, with the same 26 model decisions as the earlier recorded run (the prompt is unchanged). Of those 26, **24 were ready before their options appeared, and the hero visibly waited 0 ms in total**; the other two followed a short forced walk and finished inside the 1.4 s the options always stay up. Model time was 19.1 s in all (0.48–0.86 s per decision); the run took 122 s on screen. This shows the waiting is hidden on a fast GPU; slower devices were not measured.
+- Sound cues were rendered offline in headless Chrome to check levels (peaks ≤ 0.42, no clipping). Nobody has listened to them yet.
+
+Not checked: how the playback and sounds feel to a person, other browsers, phones, and inference on slower hardware.
+
 ## Battle rework (2026-11-14)
 
 The full circuit's battle rules changed (previous rules: git tag `balance-before`). Details and balance numbers are in `GAME_NOTES.md`.

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { newGame, applyAction, availableActions, TILES, LOW_HP, observation, nextMove, strikeDamage, commendations, PRESETS, TUTORIAL_PRESETS } from '../src/game.js';
-import { objectiveSteps, sceneFor, deltas, lastMoveHtml, journalHtml, verdictFor, verdictHtml, actionTally, ordersComplexity, TILE_ART } from '../src/view.js';
+import { objectiveSteps, sceneFor, deltas, lastMoveHtml, journalHtml, verdictFor, verdictHtml, actionTally, ordersComplexity, TILE_ART, turnBeats, displayAt, turnFeedHtml, shoutFor, BEAT_MS } from '../src/view.js';
 import { renderMap, mapLayout } from '../src/map.js';
 
 const play = (state, ...ids) => ids.reduce((s, id) => applyAction(s, id), state);
@@ -229,4 +229,48 @@ test('the complexity meter rates orders without changing them, and the examples 
   assert.match(rated.advice, /no penalty/i);
   assert.ok(rated.conditions >= 6);
   assert.equal(ordersComplexity('Guard smashes. Otherwise strike. Drink when LOW. Skip the bruiser. Buy a buckler. Rest at the bench when tired.').level, 'moderate');
+});
+
+test('a turn plays back as the decision, then each event in order, with matching cues and floating numbers', () => {
+  const boar = play(newGame('circuit'), 'depart', 'quick', 'quick', 'advance', 'advance');
+  const after = applyAction(boar, 'guard', 'llm');
+  const beats = turnBeats(boar, after.log.at(-1));
+  assert.deepEqual(beats.map(b => b.kind), ['choice', 'guard', 'foe-blocked', 'counter']);
+  assert.deepEqual(beats.map(b => b.actor), ['hero', 'hero', 'foe', 'hero']);
+  assert.deepEqual(beats.map(b => b.sounds[0]), ['choose', 'guard', 'block', 'counter']);
+  assert.deepEqual(beats[2].fx, [{ card: 'hero', tone: 'loss', text: '−4' }]);
+  assert.deepEqual(beats[3].fx, [{ card: 'foe', tone: 'loss', text: 'Counter −10' }]);
+  assert.equal(beats[0].ms, BEAT_MS.choice, 'a model\'s choice holds longer than one the player made');
+  assert.equal(turnBeats(boar, applyAction(boar, 'guard', 'manual').log.at(-1))[0].ms, BEAT_MS.own);
+  assert.equal(shoutFor('guard'), 'Guard!');
+});
+test('during playback the stage shows each beat\'s numbers, and the final state on the last beat', () => {
+  const boar = play(newGame('circuit'), 'depart', 'quick', 'quick', 'advance', 'advance');
+  const after = applyAction(boar, 'guard', 'llm');
+  const beats = turnBeats(boar, after.log.at(-1));
+  const at = i => displayAt(boar, after, beats, i);
+  assert.deepEqual([at(0).hp, at(0).enemy.hp, at(0).turn, at(0).log.length], [37, 18, 6, 5], 'the choice: nothing has happened yet, but the turn is spent');
+  assert.equal(sceneFor(at(2)).intent.name, 'Charge', 'the opponent\'s move stays on its card while it resolves');
+  assert.deepEqual([at(2).hp, at(2).enemy.hp], [33, 18]);
+  assert.equal(at(3), after);
+  // A defeat changes the scene: from then on the stage shows the beaten opponent, and the stamp arrives on its own beat.
+  const nearly = play(newGame('circuit'), 'depart', 'quick');
+  const won = applyAction(nearly, 'quick', 'manual');
+  const ratBeats = turnBeats(nearly, won.log.at(-1));
+  assert.deepEqual(ratBeats.map(b => [b.kind, b.scene]), [['choice', false], ['strike', false], ['defeat', true], ['stamp', false]]);
+  assert.equal(sceneFor(displayAt(nearly, won, ratBeats, 2)).mark, 'Defeated');
+  assert.deepEqual(displayAt(nearly, won, ratBeats, 2).stamps, []);
+  assert.deepEqual(displayAt(nearly, won, ratBeats, 3).stamps, ['rat']);
+});
+test('the play-by-play names the choice, strikes through the rest, and reveals lines one beat at a time', () => {
+  const boar = play(newGame('circuit'), 'depart', 'quick', 'quick', 'advance', 'advance');
+  const after = applyAction(boar, 'guard', 'llm');
+  const entry = after.log.at(-1);
+  const feed = index => turnFeedHtml({ entry, beats: turnBeats(boar, entry), offered: availableActions(boar), index }, 0.8);
+  assert.match(feed(0), /Turn 6 · The hero chose · 0\.8 s/);
+  assert.match(feed(0), /<strong>Guard<\/strong>/);
+  assert.equal((feed(0).match(/<s>/g) || []).length, 4, 'the four options not taken');
+  assert.equal((feed(0).match(/beat [^"]*shown/g) || []).length, 0);
+  assert.equal((feed(2).match(/beat [^"]*shown/g) || []).length, 2);
+  assert.match(feed(2), /actor-foe shown now/);
 });

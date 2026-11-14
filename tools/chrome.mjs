@@ -1,7 +1,25 @@
 import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { homedir, tmpdir } from 'node:os';
+import { delimiter, join } from 'node:path';
+
+/** The Chrome (or Edge) executable to start: `CHROME` if set, else the first usual install found for this OS. */
+export function findChrome(env = process.env, platform = process.platform) {
+  if (env.CHROME) return env.CHROME;
+  const onPath = name => (env.PATH || '').split(delimiter).some(dir => dir && existsSync(join(dir, name)));
+  if (platform === 'darwin') {
+    const apps = ['/Applications', join(homedir(), 'Applications')];
+    const bundles = ['Google Chrome.app/Contents/MacOS/Google Chrome', 'Microsoft Edge.app/Contents/MacOS/Microsoft Edge'];
+    return bundles.flatMap(bundle => apps.map(dir => join(dir, bundle))).find(existsSync) || 'google-chrome';
+  }
+  if (platform === 'win32') {
+    const roots = [env.PROGRAMFILES, env['PROGRAMFILES(X86)'], env.LOCALAPPDATA].filter(Boolean);
+    const exes = ['Google/Chrome/Application/chrome.exe', 'Microsoft/Edge/Application/msedge.exe'];
+    return exes.flatMap(exe => roots.map(dir => join(dir, exe))).find(existsSync) || 'chrome';
+  }
+  return ['google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser'].find(onPath) || 'google-chrome';
+}
 
 export const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 // `profileDir` keeps the browser profile (and any downloaded model) between runs. Without it, each run starts clean.
@@ -11,7 +29,7 @@ export async function launch({ softwareGpu = false, hardwareGpu = false, profile
   const flags = ['--headless=new', '--no-sandbox', '--no-first-run', '--no-default-browser-check', '--disable-dev-shm-usage', '--remote-debugging-port=0', `--user-data-dir=${profile}`, '--mute-audio'];
   if (softwareGpu) flags.push('--enable-unsafe-webgpu', '--use-angle=swiftshader', '--enable-unsafe-swiftshader');
   else if (hardwareGpu) flags.push('--enable-unsafe-webgpu', '--use-angle=vulkan', '--enable-features=Vulkan', '--disable-vulkan-surface');
-  const proc = spawn(process.env.CHROME || 'google-chrome', [...flags, 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'] });
+  const proc = spawn(findChrome(), [...flags, 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'] });
   let stderr = '';
   proc.stderr.on('data', data => { stderr = (stderr + data.toString()).slice(-8000); });
   let spawnError;
@@ -77,7 +95,10 @@ export async function launch({ softwareGpu = false, hardwareGpu = false, profile
       throw new Error(`Timed out: ${expression}`);
     },
     async viewport(width,height,mobile=false) { await send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile}); },
-    async click(selector) {
+    // Waits for the control to exist and be enabled, since options return only after a turn has finished playing.
+    async click(selector, timeout = 8000) {
+      const started = Date.now();
+      while (Date.now()-started < timeout && !(await page.eval(`(() => { const e=document.querySelector(${JSON.stringify(selector)}); return Boolean(e && !e.disabled); })()`))) await sleep(60);
       await page.eval(`document.querySelector(${JSON.stringify(selector)})?.scrollIntoView({ block: 'center' })`);
       const point = await page.eval(`(() => { const e=document.querySelector(${JSON.stringify(selector)}); if (!e || e.disabled) throw Error('Missing or disabled control'); const r=e.getBoundingClientRect(); return {x:r.x+r.width/2,y:r.y+r.height/2}; })()`);
       await send('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',clickCount:1,...point});

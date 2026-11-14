@@ -1,6 +1,7 @@
 // Review tool: screenshots of the main game states at several window sizes, plus a text-size audit.
 // Usage: node tools/shots.mjs [output-dir]    (default: artifacts/shots)
 // Drives the Manual sandbox only. No model is loaded and nothing here is evidence of LLM play.
+// Turns are not played back (instant pace), except in `circuit-playback`, which is held on one beat.
 import { mkdir } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { serve, ROOT } from './serve.mjs';
@@ -42,14 +43,16 @@ const level = async name => { await page.click(`[data-level="${name}"]`); };
 const restart = async () => { if (await page.eval('QuestDemo.snapshot().game.turn > 0')) await page.click('#reset'); };
 // Each state starts from a fresh trial in Manual sandbox, then plays fixed actions.
 const STATES = {
-  'setup': async () => { await page.click('[data-mode="llm"]'); await level('tutorial'); },
-  'tutorial-fight': async () => { await page.click('[data-mode="manual"]'); await level('tutorial'); await restart(); await act(['depart', 'quick']); },
+  'setup': async () => { await page.click('button[data-mode="llm"]'); await level('tutorial'); },
+  'tutorial-fight': async () => { await page.click('button[data-mode="manual"]'); await level('tutorial'); await restart(); await act(['depart', 'quick']); },
   'tutorial-win': async () => { await restart(); await act(['depart', 'quick', 'quick', 'advance', 'advance', 'finish']); },
   'tutorial-loss': async () => { await restart(); await act(['depart', 'retreat', 'advance', 'advance', 'advance', 'retreat', 'advance', 'advance', 'advance', 'retreat', 'advance', 'advance']); },
   'circuit-start': async () => { await level('circuit'); await restart(); },
   // The boar announces its charge; guarding it counters.
   'circuit-smash': async () => { await act(['depart', 'quick', 'quick', 'advance', 'advance']); },
-  'circuit-countered': async () => { await act(['guard']); },
+  // Mid-turn: the guard is up and the charge has just landed; the counter is still to come.
+  'circuit-playback': async () => { await page.eval(`QuestDemo.setPace('normal'); QuestDemo.hold(2)`); await act(['guard']); await page.waitFor('QuestDemo.snapshot().beat === 2'); },
+  'circuit-countered': async () => { await page.eval(`QuestDemo.hold(null); QuestDemo.setPace('instant')`); await page.waitFor('!QuestDemo.snapshot().playing'); },
   'circuit-armorer': async () => { await reader("s.position === 8 && !s.enemy"); },
   'circuit-champion': async () => { await reader("s.enemy && s.enemy.boss && s.enemy.step === 2"); },
   'circuit-win': async () => { await reader('false'); },
@@ -60,6 +63,7 @@ const STATES = {
 try {
   await page.goto(`http://127.0.0.1:${server.address().port}/`);
   await page.waitFor('!QuestDemo.snapshot().checkingDevice');
+  await page.eval(`QuestDemo.setPace('instant')`);
   const small = new Map();
   for (const [name, setup] of Object.entries(STATES)) {
     await page.viewport(1440, 900);

@@ -109,7 +109,7 @@
       <div id="stage" class="stage">
         <div class="fighters">
           <article id="hero-card" class="fighter hero" aria-label="Hero status">
-            <div class="portrait"><span class="portrait-fallback" aria-hidden="true">✦</span><img id="hero-art" src="./assets/art/hero.webp" alt="" onerror="this.hidden=true"><span id="hp-flag" class="flag" hidden>Low health</span></div>
+            <div class="portrait"><span class="portrait-fallback" aria-hidden="true">✦</span><img id="hero-art" src="./assets/art/hero.webp" alt="" onerror="this.hidden=true"><span id="hp-flag" class="flag" hidden>Low health</span><span id="hero-says" class="says" hidden></span></div>
             <div class="fighter-info">
               <p class="kicker">Your sellsword <span id="lap-badge" class="lap" hidden>Lap 1</span></p>
               <div class="hp-line"><strong id="hp-value" class="hp-num">40</strong><span id="hp-max" class="hp-max">/ 40 HP</span></div>
@@ -136,12 +136,25 @@
             </div>
           </article>
         </div>
-        <p id="situation" class="situation"></p>
+        <div id="stage-foot" class="stage-foot">
+          <p id="situation" class="situation"></p>
+          <div class="turn-feed">
+            <div id="turn-feed"></div>
+            <button id="skip" class="skip" type="button">Skip <span aria-hidden="true">▸▸</span></button>
+          </div>
+        </div>
+        <p id="beat-live" class="sr-only" aria-live="polite"></p>
         <div id="verdict" class="verdict" hidden></div>
       </div>
 
       <div id="controls" class="controls">
-        <p id="run-status" class="run-status" role="status">Your hero is waiting for instructions. Impatiently.</p>
+        <div class="controls-top">
+          <p id="run-status" class="run-status" role="status">Your hero is waiting for instructions. Impatiently.</p>
+          <div class="playback-settings">
+            <button id="pace" class="ghost small" type="button">Pace: Normal</button>
+            <button id="sound" class="ghost small" type="button" aria-pressed="true">♪ On</button>
+          </div>
+        </div>
         <progress id="cta-progress" max="1" value="0" hidden></progress>
         <div class="control-row">
           <button id="load-cta" class="primary">Load local model <span aria-hidden="true">↓</span></button>
@@ -153,7 +166,7 @@
         </div>
       </div>
 
-      <div id="last-move" class="last-move" aria-live="polite"></div>
+      <div id="last-move" class="last-move"></div>
 
       <div id="options-wrap" class="options-wrap">
         <p id="options-title" class="section-label"></p>
@@ -208,6 +221,16 @@
           <button id="load-model" class="secondary full">Load local model <span aria-hidden="true">↓</span></button>
           <progress id="load-progress" max="1" value="0" hidden></progress>
           <p id="model-status" role="status">Choose a model, then load it. Your orders and decisions stay in this browser.</p>
+          <details id="webgpu-help" class="webgpu-help">
+            <summary>Get WebGPU on Windows, Mac or Linux</summary>
+            <ul class="setup-list">
+              <li><strong>Windows</strong>Chrome or Edge 113+, or Firefox 141+. WebGPU is on by default.</li>
+              <li><strong>Mac</strong>Chrome or Edge 113+, or Safari 26+. Firefox 147+ works on Apple silicon Macs only.</li>
+              <li><strong>Linux</strong>Chrome 144+ turns WebGPU on for Intel graphics (Gen12 and newer), and Chrome 147+ for NVIDIA on Wayland. For any other setup, start the game with <code>npm run play</code>: it opens Chrome with the WebGPU flags. Firefox on Linux has WebGPU only in Nightly so far.</li>
+              <li><strong>Still not working?</strong>Turn on hardware acceleration in the browser settings, update your graphics driver, restart the browser, and reload this page. <code>chrome://gpu</code> (in Firefox, <code>about:support</code>) shows whether WebGPU is on.</li>
+            </ul>
+            <p>Tested here: Chrome on Linux with an NVIDIA GPU. The other lines come from the <a href="https://github.com/gpuweb/gpuweb/wiki/Implementation-Status" target="_blank" rel="noopener">WebGPU status page</a> (October 2026), which also lists the Chrome flags for other Linux setups.</p>
+          </details>
           <details id="model-settings" class="model-settings">
             <summary>Change model or check this device</summary>
             <label for="model">Model</label>
