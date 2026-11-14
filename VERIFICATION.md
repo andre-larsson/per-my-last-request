@@ -2,6 +2,16 @@
 
 Original prototype checks on 2026-11-13, with model-selection checks added on 2026-11-14. This file distinguishes game-rule checks, browser UI checks, and genuine model inference.
 
+## Manual sandbox local only (2026-11-14)
+
+The published build removes the Manual sandbox; running from the repository keeps it.
+
+- `npm test` passed (56 tests). New: a no-WebGPU fallback names the Manual sandbox only where the page offers it, and no model note mentions it.
+- `npm run test:browser` passed. Local manual play and the stub-worker flow are unchanged. New: it builds the site as the deploy does, serves it, and checks that `<html>` has no `data-manual-sandbox`, that all four `.manual-only` elements are hidden, that the no-WebGPU status and suggestion still appear, and that no visible text (Rulebook open) mentions manual play.
+- Screenshots of the built and local pages at 1440 and 390 px: the built page shows the model controls with no toggle and no "Play manually"; the local page is unchanged.
+
+Not checked: the live site after deploy (not pushed).
+
 ## Music (2026-11-14)
 
 A musicbox score with desk, trial, won and lost cues; details in `GAME_NOTES.md`. The first score ("sparse dread") was replaced the same day by a cartoon-comedy score, after the user listened. Nobody has listened to the comedy score yet: the checks below cover its notes, levels and the game's wiring, not whether it sounds good or funny.

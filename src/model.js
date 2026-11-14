@@ -36,7 +36,7 @@ export class LocalModel {
     });
   }
   async load(model) {
-    if (!model.startsWith('cpu:') && (!navigator.gpu || !(await navigator.gpu.requestAdapter()))) throw new Error('WebGPU is not available in this browser. Select the CPU model, or inspect the game in Manual sandbox.');
+    if (!model.startsWith('cpu:') && (!navigator.gpu || !(await navigator.gpu.requestAdapter()))) throw new Error('WebGPU is not available in this browser. Select the CPU model instead.');
     await this.request('load', { model }, LOAD_SILENCE_MS, { untilSilent: true, message: 'The model stopped making progress for 5 minutes. Check the connection, then load it again.' });
     this.ready = true;
     this.model = model;

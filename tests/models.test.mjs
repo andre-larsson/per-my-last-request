@@ -27,6 +27,16 @@ test('missing or software WebGPU never recommends a larger GPU model', () => {
     assert.equal(recommendModel({ ...device, cpu: false }, 24).model, null);
   }
 });
+test('a fallback names the Manual sandbox only where the page offers it', () => {
+  const noGpu = { ...hardware, gpu: false };
+  assert.match(recommendModel(noGpu).reason, /Manual sandbox/);
+  assert.match(recommendModel({ ...noGpu, cpu: false }).reason, /Manual sandbox/);
+  // The published site: no sandbox to point to.
+  for (const device of [noGpu, { ...noGpu, cpu: false }, { ...hardware, software: true }]) assert.doesNotMatch(recommendModel(device, null, { manual: false }).reason, /manual/i);
+  assert.match(recommendModel(noGpu, null, { manual: false }).reason, /CPU model/);
+  assert.match(recommendModel({ ...noGpu, cpu: false }, null, { manual: false }).reason, /cannot run a local model/);
+  for (const model of MODELS) assert.doesNotMatch(model.note, /manual/i, 'Model notes show on the published site too');
+});
 test('per-buffer limits reduce candidates but are never treated as total VRAM', () => {
   const limited = { ...hardware, limits: { maxBufferSize: 256 * 2 ** 20, maxStorageBufferBindingSize: 128 * 2 ** 20 } };
   assert.match(recommendModel(limited, 24).model.id, /1.5B/);

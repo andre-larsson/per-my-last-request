@@ -13,5 +13,6 @@
 - Keep model failures separate from tactical failures. A generation, parsing, or loading error consumes no game turn.
 - Preserve prompt and state revisions when changing asynchronous controls so stale model replies cannot act after a restart or pause.
 - Keep this game's fiction distinct from neighboring projects, particularly Brinelight's bells, magical light, tides, and keeper story, and Menhir's standing-stone island puzzles.
+- The Manual sandbox is local only. `tools/build.mjs` removes `data-manual-sandbox` from `<html>`, so the published site offers model-controlled play alone; mark any new sandbox-only element `.manual-only`.
 - Deploy: `.github/workflows/pages.yml` runs `npm test`, assembles `_site/` with `node tools/build.mjs`, and deploys it on push to `main`. Pushing to `main` deploys the live site, so push only when asked; then watch the Actions run and check the live URL.
 - When asked to commit, commit directly to `main`. Do not create a branch first.

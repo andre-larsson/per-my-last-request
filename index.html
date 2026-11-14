@@ -1,5 +1,6 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-manual-sandbox>
+<!-- data-manual-sandbox offers the Manual sandbox (the .manual-only elements). tools/build.mjs removes it from the published site. -->
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -85,7 +86,7 @@
         </ul>
       </section>
     </div>
-    <p class="help-foot">Manual sandbox lets you click the actions yourself to learn the rules. It does not read your orders.</p>
+    <p class="help-foot manual-only">Manual sandbox lets you click the actions yourself to learn the rules. It does not read your orders.</p>
   </dialog>
 
   <main class="desk">
@@ -166,7 +167,7 @@
           <button id="load-cta" class="primary">Load local model <span aria-hidden="true">↓</span></button>
           <button id="run" class="primary" disabled>Run these orders <span aria-hidden="true">→</span></button>
           <button id="next-level" class="primary" hidden>Next assignment <span aria-hidden="true">→</span></button>
-          <button id="manual-cta" class="secondary">Play manually</button>
+          <button id="manual-cta" class="secondary manual-only">Play manually</button>
           <button id="reset" class="ghost">Restart</button>
         </div>
       </div>
@@ -203,7 +204,7 @@
 
       <section class="card controller" aria-label="Hero controller">
         <h3>Who plays the hero?</h3>
-        <div class="segmented" role="group" aria-label="Hero controller">
+        <div class="segmented manual-only" role="group" aria-label="Hero controller">
           <button data-mode="llm" aria-pressed="true"><strong>Local LLM</strong><span>Reads your orders</span></button>
           <button data-mode="manual" aria-pressed="false"><strong>Manual sandbox</strong><span>You click, no LLM</span></button>
         </div>
@@ -245,7 +246,7 @@
             </div>
           </details>
         </div>
-        <p id="manual-note" class="notice" hidden>Manual sandbox: you choose the actions under the stage. Your orders are not read in this mode.</p>
+        <p id="manual-note" class="notice manual-only" hidden>Manual sandbox: you choose the actions under the stage. Your orders are not read in this mode.</p>
       </section>
     </aside>
 

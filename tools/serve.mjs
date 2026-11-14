@@ -5,12 +5,14 @@ import { fileURLToPath } from 'node:url';
 
 export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const MIME = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.webp': 'image/webp', '.md': 'text/plain; charset=utf-8', '.scrim': 'text/plain; charset=utf-8' };
-export function serve(port = 4173) {
+/** Serves `root` (the repository by default; a built `_site/` for checks of the published page) on 127.0.0.1. */
+export function serve(port = 4173, root = ROOT) {
+  root = resolve(root);
   const server = createServer(async (req, res) => {
     try {
       const pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
-      const file = resolve(ROOT, `.${pathname === '/' ? '/index.html' : pathname}`);
-      if (!file.startsWith(ROOT + sep) || pathname.split('/').some(part => part.startsWith('.'))) { res.writeHead(403); res.end('Forbidden'); return; }
+      const file = resolve(root, `.${pathname === '/' ? '/index.html' : pathname}`);
+      if (!file.startsWith(root + sep) || pathname.split('/').some(part => part.startsWith('.'))) { res.writeHead(403); res.end('Forbidden'); return; }
       const body = await readFile(file);
       res.writeHead(200, { 'Content-Type': MIME[extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-cache', 'X-Content-Type-Options': 'nosniff' });
       res.end(body);

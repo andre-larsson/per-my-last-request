@@ -2,7 +2,7 @@
 
 A local prototype of a prompt-controlled adventure. Write standing orders for a guild applicant, watch their decisions, then revise the prompt and retry.
 
-**Play it at https://a403.space/per-my-last-request/** (a browser with WebGPU runs the model; the Manual sandbox works anywhere). It is also listed on the [Games hub](https://a403.space/games/).
+**Play it at https://a403.space/per-my-last-request/** (a browser with WebGPU runs the model; without it, try the experimental CPU model). It is also listed on the [Games hub](https://a403.space/games/).
 
 The introductory assignment teaches one rule: the hero must fight the practice rat to earn a stamp, then return home. Its first draft tells the hero to retreat from every fight. Change the orders to complete the assignment. Two middle assignments then add the rest a few rules at a time: **Fair warning** (opponents announce their moves, and the hero can guard) and **Prize money** (the circuit's second half, with coins, gear and the champion). The last is the full twelve-stop guild circuit.
 
@@ -22,11 +22,11 @@ Alternatively use `npm start` and open the URL in your own browser. Use `PORT=80
 
 ## Publish
 
-`node tools/build.mjs` copies what the page loads at runtime (`index.html`, `style.css`, `src/`, `assets/art/`) into `_site/` and checks that every referenced file exists and no path is root-absolute. On every push to `main`, `.github/workflows/pages.yml` runs `npm test`, builds `_site/` and deploys it to GitHub Pages at https://a403.space/per-my-last-request/.
+`node tools/build.mjs` copies what the page loads at runtime (`index.html`, `style.css`, `src/`, `assets/art/`) into `_site/` and checks that every referenced file exists and no path is root-absolute. It also removes the Manual sandbox: the published page offers only model-controlled play. On every push to `main`, `.github/workflows/pages.yml` runs `npm test`, builds `_site/` and deploys it to GitHub Pages at https://a403.space/per-my-last-request/.
 
 ### Browser and GPU setup
 
-The local model needs WebGPU. Manual sandbox and the experimental CPU model work without it. The game checks for WebGPU when it opens; if it finds none, the guide **Get WebGPU on Windows, Mac or Linux** under **Who plays the hero?** opens with the short version of this table.
+The local model needs WebGPU. The experimental CPU model works without it, and so does the Manual sandbox when you run the game locally. The game checks for WebGPU when it opens; if it finds none, the guide **Get WebGPU on Windows, Mac or Linux** under **Who plays the hero?** opens with the short version of this table.
 
 | | Chrome / Edge | Firefox | Safari |
 |---|---|---|---|
@@ -53,7 +53,7 @@ Only Chrome on Linux with an NVIDIA GPU (X11, `npm run play` flags) has been tes
 
 The screen has three numbered columns: **1 Write the orders**, **2 Watch the trial**, **3 Read the report**.
 
-1. The game checks WebGPU without downloading anything. The button under the stage names the selected model and its download size; click it to load. The initial download can take a few minutes, or much longer on a slow connection; loading stops only after five minutes without progress. **Play manually** skips the model and opens the Manual sandbox.
+1. The game checks WebGPU without downloading anything. The button under the stage names the selected model and its download size; click it to load. The initial download can take a few minutes, or much longer on a slow connection; loading stops only after five minutes without progress. When you run the game locally, **Play manually** skips the model and opens the Manual sandbox.
 2. Click **Run these orders**. The stage shows the hero and the current opponent or place, and under them the turn being played. The panel under the controls shows the options on the table and (under **What the hero is told this turn**) the exact text the model receives. Each turn plays back in beats: the options stay up while the hero weighs them, the choice is stamped and the options not taken are crossed out, then the hero's action, the opponent's answer, any counter and any reward follow one at a time, each with its own sound. **Pace**, **♪** (sound effects on or off) and **♫** (music on or off) sit beside the status line; **Skip** ends a turn's playback. The music is synthesized in the browser from a text score (`assets/music/after-hours.scrim`), with no audio files.
    - **Pace: Turn by turn** (the default) plays one turn per click and keeps that turn on the stage until **Next turn**. The model reads up to three decisions ahead meanwhile, so the next turn usually starts at once. **Normal** and **Fast** play turn after turn.
    - **Pause** freezes the trial at once, mid-turn if need be; **Continue** carries on from the same moment. While paused you can read, edit the orders, or switch assignment.
@@ -67,13 +67,13 @@ Other GPU models use WebLLM with four-bit weights and 32-bit arithmetic. The Qwe
 
 Under **Who plays the hero?**, **Change model or check this device** opens the model list and the device check. The check looks for a WebGPU adapter, software graphics, and browser buffer limits. With unknown GPU memory it suggests the tested 3B baseline, or a smaller option when buffer limits are low. Browsers do not expose total or free VRAM; the game never treats a GPU name, system RAM, or a buffer limit as available GPU memory. Under **Know your GPU memory?**, you can supply your capacity. The recommendation reserves 20% as headroom and considers larger candidates, including **Qwen3 8B** (about 5 GB download, estimated 6.9 GB GPU memory). Estimates do not guarantee a successful load or good decisions. Qwen3 is labeled experimental.
 
-A suggestion that differs from your selection appears above the load button. **Use recommendation** changes the selection only when clicked. Checking again and changing the memory estimate never silently switch or unload your model. Downloads start only from a load button that names the model. Missing or software WebGPU suggests the experimental CPU option; Manual sandbox remains available. No benchmark, model download, or game action runs during the device check.
+A suggestion that differs from your selection appears above the load button. **Use recommendation** changes the selection only when clicked. Checking again and changing the memory estimate never silently switch or unload your model. Downloads start only from a load button that names the model. Missing or software WebGPU suggests the experimental CPU option; locally, Manual sandbox remains available. No benchmark, model download, or game action runs during the device check.
 
 An experimental **Qwen 0.5B CPU** option runs through WebAssembly and needs no GPU. It downloads approximately 520 MB including tokenizer files, but was less reliable at following the orders. It does not silently replace the GPU controller.
 
 A browser supporting the WebGPU API may still lack a usable adapter or enough memory. See `VERIFICATION.md` for the hardware and browser results actually obtained.
 
-**Manual sandbox** offers the same game rules with clickable actions. It does not interpret prompts and is labeled separately from model-controlled play.
+**Manual sandbox** offers the same game rules with clickable actions. It does not interpret prompts and is labeled separately from model-controlled play. It is for local play and tools only (`npm start`, `npm run play`, the browser tests and screenshots); `tools/build.mjs` removes it from the published site.
 
 ## What the demo implements
 

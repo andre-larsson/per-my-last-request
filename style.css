@@ -45,6 +45,8 @@
 }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
+/* The Manual sandbox is local only: the published site has no data-manual-sandbox on <html>. */
+html:not([data-manual-sandbox]) .manual-only { display: none !important; }
 /* The glow ends below the window and eases out over several stops; an edge inside the window shows as a band on a dark page. */
 body { margin: 0; min-height: 100vh; background: radial-gradient(150% 130% at 50% 0%, #1c1512 0%, #151110 30%, #100d0b 60%, var(--paper) 100%) fixed; }
 h1, h2, h3, p, ul, ol, dl, dd { margin: 0; }

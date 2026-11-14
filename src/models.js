@@ -6,7 +6,7 @@ export const MODELS = [
   { id: 'Qwen2.5-7B-Instruct-q4f32_1-MLC', name: 'Qwen 2.5 · 7B', backend: 'WebGPU', downloadGB: 4.1, memoryGB: 6, note: 'Verified to load and choose actions. It still made tactical mistakes on the full circuit.' },
   { id: 'Qwen2.5-1.5B-Instruct-q4f32_1-MLC', name: 'Qwen 2.5 · 1.5B', backend: 'WebGPU', downloadGB: 0.9, memoryGB: 1.9, note: 'Smaller GPU option. Following complicated instructions may be unreliable.' },
   { id: 'Qwen2.5-0.5B-Instruct-q4f32_1-MLC', name: 'Qwen 2.5 · 0.5B', backend: 'WebGPU', downloadGB: 0.4, memoryGB: 1.1, note: 'Smallest GPU download. Instruction following is experimental.' },
-  { id: 'cpu:onnx-community/Qwen2.5-0.5B-Instruct', name: 'Qwen 2.5 · 0.5B', backend: 'CPU', downloadGB: 0.52, memoryGB: null, note: 'Experimental CPU fallback. No GPU needed, but following orders is unreliable. Manual sandbox is also available.' },
+  { id: 'cpu:onnx-community/Qwen2.5-0.5B-Instruct', name: 'Qwen 2.5 · 0.5B', backend: 'CPU', downloadGB: 0.52, memoryGB: null, note: 'Experimental CPU fallback. No GPU needed, but following orders is unreliable.' },
 ];
 export const DEFAULT_MODEL = MODELS[0].id;
 export const findModel = id => MODELS.find(model => model.id === id);
@@ -40,10 +40,12 @@ export async function checkDevice({ gpu = globalThis.navigator?.gpu, secure = gl
   } finally { clearTimeout(timer); }
 }
 
-export function recommendModel(device, memoryGB = null) {
+/** `manual`: whether this page offers the Manual sandbox (local play only), so a fallback may point to it. */
+export function recommendModel(device, memoryGB = null, { manual = true } = {}) {
   if (!device) return null;
   const cpu = MODELS.find(model => model.backend === 'CPU');
-  const fallback = reason => ({ model: device.cpu ? cpu : null, reason: `${reason} ${device.cpu ? 'Try the experimental CPU model, or play in Manual sandbox.' : 'Use Manual sandbox in this browser.'}` });
+  const advice = device.cpu ? `Try the experimental CPU model${manual ? ', or play in Manual sandbox' : ''}.` : manual ? 'Use Manual sandbox in this browser.' : 'This browser cannot run a local model. Try a recent Chrome, Edge, Firefox or Safari.';
+  const fallback = reason => ({ model: device.cpu ? cpu : null, reason: `${reason} ${advice}` });
   if (!device.gpu || device.software) return fallback(device.reason);
   if (device.limits.maxBufferSize < 256 * 2 ** 20 || device.limits.maxStorageBufferBindingSize < 128 * 2 ** 20) return fallback('The browser exposes GPU buffer limits below the runtime minimum.');
   const limited = device.limits.maxStorageBufferBindingSize < 256 * 2 ** 20;

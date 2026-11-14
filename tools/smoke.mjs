@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { serve, ROOT } from './serve.mjs';
 import { launch, sleep } from './chrome.mjs';
@@ -225,6 +226,30 @@ async function stubbedLlmFlow(page, url) {
   await page.screenshot(join(artifacts, 'flow-phone.png'));
   await page.viewport(1440, 1100);
 }
+/** The published site (built as the deploy builds it) offers no Manual sandbox, and no text points to one. */
+async function publishedSiteHasNoSandbox(page) {
+  const out = join(artifacts, 'site-check');
+  execFileSync(process.execPath, [join(ROOT, 'tools', 'build.mjs'), out], { stdio: 'pipe' });
+  const site = await serve(0, out);
+  try {
+    await page.goto(`http://127.0.0.1:${site.address().port}/`);
+    await page.waitFor('!QuestDemo.snapshot().checkingDevice');
+    assert.equal(await page.eval('document.documentElement.hasAttribute("data-manual-sandbox")'), false, 'The build removes the sandbox flag');
+    assert.equal(await page.eval('[...document.querySelectorAll(".manual-only")].length'), 4);
+    assert.equal(await page.eval('[...document.querySelectorAll(".manual-only")].every(el => getComputedStyle(el).display === "none")'), true, 'No sandbox control or note is shown');
+    // With no WebGPU, the fallback advice and the blocked status are where the sandbox used to be suggested.
+    await page.eval(`Object.defineProperty(navigator,'gpu',{configurable:true,value:undefined});`);
+    await page.click('#model-settings > summary');
+    await page.click('#check-device');
+    await page.waitFor('QuestDemo.snapshot().device?.gpu === false');
+    assert.match(await page.eval('document.querySelector("#run-status").textContent'), /Get WebGPU/);
+    assert.match(await page.eval('document.querySelector("#recommendation").textContent'), /No GPU needed|CPU/);
+    await page.screenshot(join(artifacts, 'published-no-sandbox.png'));
+    await page.click('#help-toggle');
+    assert.doesNotMatch(await page.eval('document.body.innerText'), /manual/i, 'No visible text mentions manual play');
+    assert.equal(await page.eval('QuestDemo.snapshot().mode'), 'llm');
+  } finally { await new Promise(resolve => site.close(resolve)); }
+}
 /** Chooses a pace with the real Pace button, which cycles Turn by turn → Normal → Fast. */
 async function choosePace(page, name) {
   for (let i = 0; i < 3 && await page.eval('QuestDemo.snapshot().pace') !== name; i++) await page.click('#pace');
@@ -425,8 +450,10 @@ try {
     assert.equal(await page.eval('[...document.querySelectorAll(".tabs button")].every(tab => tab.getBoundingClientRect().right <= innerWidth)'),true,'All four assignment tabs fit on a phone');
     await page.viewport(1440,1100);
     await stubbedLlmFlow(page, `http://127.0.0.1:${server.address().port}/`);
+    await publishedSiteHasNoSandbox(page);
     await writeFile(join(artifacts,'browser-report.json'),JSON.stringify({kind:'manual UI verification plus LLM-mode interface flow with a stub worker; no model inference',result,errors:page.errors},null,2));
     console.log(`Browser UI passed: desktop, 390px, 360px, potion costs, restart, complete victory in ${result.game.turn} turns, music cues and switch.`);
+    console.log('Published build checked: no Manual sandbox controls or text.');
     console.log('LLM-mode interface flow passed with a stub worker (no inference): load, thinking, stale reply, parse failure and retry, edited orders, turn playback with prepared decisions, pause during playback and during thinking, turn-by-turn pace, skip.');
   } else {
     // The test profile can be persistent (QUEST_PROFILE), so orders saved by an earlier run must not leak into this one.

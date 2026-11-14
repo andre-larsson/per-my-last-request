@@ -1,9 +1,10 @@
 // Assembles the published site: only what the page loads at runtime (index.html, style.css, src/, assets/art/,
 // assets/music/ and the vendored music player), then checks that every file it refers to exists and that no path is
-// root-absolute, so the site works under /per-my-last-request/ on GitHub Pages.
+// root-absolute, so the site works under /per-my-last-request/ on GitHub Pages. The published page has no Manual sandbox:
+// the build removes `data-manual-sandbox` from <html>, which hides the sandbox controls and refuses the mode.
 //
 //   node tools/build.mjs [outdir=_site]
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve, relative } from 'node:path';
 import { ROOT } from './serve.mjs';
 import { TILE_ART } from '../src/view.js';
@@ -17,7 +18,11 @@ for (const path of SHIP) cpSync(join(ROOT, path), join(out, path), { recursive: 
 
 const missing = [];
 const check = (path, from) => { if (!existsSync(join(out, path))) missing.push(`${path} (from ${from})`); };
-const html = readFileSync(join(out, 'index.html'), 'utf8');
+const SANDBOX = /(<html\b[^>]*?)\s+data-manual-sandbox(?=[\s>])/;
+const source = readFileSync(join(out, 'index.html'), 'utf8');
+if (!SANDBOX.test(source)) missing.push('index.html: <html> has no data-manual-sandbox to remove; the Manual sandbox flag has moved');
+const html = source.replace(SANDBOX, '$1');
+writeFileSync(join(out, 'index.html'), html);
 for (const [, ref] of html.matchAll(/(?:src|href)="([^"]+)"/g)) if (!/^(https?:|#|data:|mailto:)/.test(ref)) check(ref.replace(/^\.\//, ''), 'index.html');
 if (/\b(?:src|href)="\//.test(html)) missing.push('index.html uses a root-absolute path; use relative paths so /<repo>/ works');
 // Every script's relative imports and URLs, including ../ ones such as the vendored music player and the score.

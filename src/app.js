@@ -8,6 +8,8 @@ import { unlockSound, setSoundEnabled, playSound } from './sound.js';
 import { unlockMusic, setMusicEnabled, setMusic, musicPlaying, musicState } from './music.js';
 
 const $ = id => document.getElementById(id);
+// The Manual sandbox is offered only when the game runs locally. tools/build.mjs removes this attribute from the published site.
+const MANUAL_SANDBOX = document.documentElement.hasAttribute('data-manual-sandbox');
 
 let level = 'tutorial';
 let game = newGame(level);
@@ -125,14 +127,14 @@ const gpuMemory = () => $('gpu-memory').value ? Number($('gpu-memory').value) : 
 function renderModelAdvice() {
   const selected = findModel($('model').value);
   const busy = checkingDevice || loading || locked();
-  recommendation = recommendModel(device, gpuMemory());
+  recommendation = recommendModel(device, gpuMemory(), { manual: MANUAL_SANDBOX });
   const suggested = recommendation?.model?.id === selected.id;
   $('check-device').disabled = busy;
   $('check-device').textContent = checkingDevice ? 'Checking…' : 'Check again';
   $('load-model').disabled = busy || model.ready;
   $('gpu-memory').disabled = busy;
   $('device-status').textContent = checkingDevice ? 'Checking browser graphics… No model download.' : device ? `${device.name ? `${device.name}. ` : ''}${device.reason}` : 'Device has not been checked.';
-  $('recommendation').innerHTML = recommendation ? `<strong>${recommendation.model ? `Suggested: ${escapeHtml(recommendation.model.name)} · ${recommendation.model.backend}` : 'Manual sandbox recommended'}</strong><span>${escapeHtml(recommendation.reason)}</span>` : '';
+  $('recommendation').innerHTML = recommendation ? `<strong>${recommendation.model ? `Suggested: ${escapeHtml(recommendation.model.name)} · ${recommendation.model.backend}` : MANUAL_SANDBOX ? 'Manual sandbox recommended' : 'No local model can run here'}</strong><span>${escapeHtml(recommendation.reason)}</span>` : '';
   // The suggestion only asks for attention when it differs from the current selection.
   $('recommendation-box').hidden = !recommendation || suggested;
   $('use-recommendation').disabled = busy || !recommendation?.model || suggested;
@@ -358,7 +360,7 @@ function renderControls(s) {
   $('load-cta').disabled = loading || checkingDevice;
   $('load-cta').innerHTML = loading ? `Loading model… ${Math.round(loadProgress * 100)}% ` : `<span>Load <span class="wide-only">${escapeHtml(selected.name)}</span><span class="narrow-only">model</span></span> <small>${modelSize(selected.downloadGB)}<span class="wide-only"> download</span></small><span aria-hidden="true">↓</span>`;
   $('cta-progress').hidden = !loading;
-  $('manual-cta').hidden = !llm || model.ready || loading;
+  $('manual-cta').hidden = !MANUAL_SANDBOX || !llm || model.ready || loading;
   // A GPU model on a device without usable WebGPU would only fail to load. Say so before the click.
   const blocked = llm && !model.ready && !loading && !hasError && device && (!device.gpu || device.software) && selected.backend !== 'CPU';
   $('run').hidden = !llm || !model.ready;
@@ -377,7 +379,7 @@ function renderControls(s) {
   $('reset').textContent = terminal && !llm ? 'Try again ↻' : 'Restart';
   $('reset').className = terminal && !llm && $('next-level').hidden ? 'primary' : 'ghost';
   $('run-status').textContent = (!hasError && llm && runLine())
-    || (blocked ? 'This browser cannot run the selected GPU model. See “Get WebGPU” under “Who plays the hero?”, use the CPU suggestion there, or play manually.'
+    || (blocked ? 'This browser cannot run the selected GPU model. See “Get WebGPU” under “Who plays the hero?”' + (MANUAL_SANDBOX ? ', use the CPU suggestion there, or play manually.' : ' or use the CPU suggestion there.')
     : !hasError && s.status === 'won' ? 'Success. Your orders got the hero home.'
     : !hasError && s.status === 'lost' ? 'Trial over. Read the report, change the orders, and run again.'
     : status);
@@ -651,7 +653,7 @@ async function takeTurn() {
       running = false;
       setPaused(false);
       hasError = true;
-      status = `${error.message} No turn was spent. You can retry or use Manual sandbox.`;
+      status = `${error.message} No turn was spent. You can retry${MANUAL_SANDBOX ? ' or use Manual sandbox' : ''}.`;
     }
     return false;
   } finally {
@@ -717,13 +719,13 @@ async function loadModel() {
     $('model-status').textContent = error.message;
     $('model-status').className = 'error';
     // The raw runtime message stays in the model panel; the status line says what to do about it.
-    status = /network|fetch|cache/i.test(error.message) ? 'The model download was interrupted by a network error. Check the connection and load it again, or play manually.' : `Model could not load: ${error.message}`;
+    status = /network|fetch|cache/i.test(error.message) ? `The model download was interrupted by a network error. Check the connection and load it again${MANUAL_SANDBOX ? ', or play manually' : ''}.` : `Model could not load: ${error.message}`;
     hasError = true;
     $('model-settings').open = true;
   } finally { loading = false; $('load-progress').hidden = true; render(); }
 }
 function setMode(next) {
-  if (loading || next === mode) return;
+  if (loading || next === mode || (next === 'manual' && !MANUAL_SANDBOX)) return;
   stopRun();
   mode = next;
   hasError = false;
