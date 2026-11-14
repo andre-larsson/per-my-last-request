@@ -2,6 +2,8 @@
 
 A local prototype of a prompt-controlled adventure. Write standing orders for a guild applicant, watch their decisions, then revise the prompt and retry.
 
+**Play it at https://a403.space/per-my-last-request/** (a browser with WebGPU runs the model; the Manual sandbox works anywhere). It is also listed on the [Games hub](https://a403.space/games/).
+
 The introductory assignment teaches one rule: the hero must fight the practice rat to earn a stamp, then return home. Its first draft tells the hero to retreat from every fight. Change the orders to complete the assignment. Two middle assignments then add the rest a few rules at a time: **Fair warning** (opponents announce their moves, and the hero can guard) and **Prize money** (the circuit's second half, with coins, gear and the champion). The last is the full twelve-stop guild circuit.
 
 The project name is `per-my-last-request`, styled **Per My Last ReQuest** in the game. The setting uses guild trials, equipment, contracts, and comic administrative incompetence. It avoids the bells, lantern objectives, coastal story, and other signature motifs of the neighboring Brinelight and Menhir projects.
@@ -17,6 +19,10 @@ npm run play
 This serves the game at **http://localhost:4173** and opens a dedicated Chrome game window. It looks for Chrome in the usual place on Linux, macOS and Windows, and falls back to Edge on macOS and Windows. On Linux it supplies Vulkan/WebGPU flags for the prototype. Its separate profile and model cache live in ignored `artifacts/play-browser-profile/`; your personal browser profile is unchanged. Close the window or press Ctrl+C to stop. If no browser is found, it prints the address; open it in your own browser.
 
 Alternatively use `npm start` and open the URL in your own browser. Use `PORT=8080 npm run play` for another port. `CHROME=/path/to/chrome` overrides the browser executable.
+
+## Publish
+
+`node tools/build.mjs` copies what the page loads at runtime (`index.html`, `style.css`, `src/`, `assets/art/`) into `_site/` and checks that every referenced file exists and no path is root-absolute. On every push to `main`, `.github/workflows/pages.yml` runs `npm test`, builds `_site/` and deploys it to GitHub Pages at https://a403.space/per-my-last-request/.
 
 ### Browser and GPU setup
 
