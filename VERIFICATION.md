@@ -2,6 +2,19 @@
 
 Original prototype checks on 2026-11-13, with model-selection checks added on 2026-11-14. This file distinguishes game-rule checks, browser UI checks, and genuine model inference.
 
+## Music (2026-11-14)
+
+A musicbox score with desk, trial, won and lost cues; details in `GAME_NOTES.md`. The first score ("sparse dread") was replaced the same day by a cartoon-comedy score, after the user listened. Nobody has listened to the comedy score yet: the checks below cover its notes, levels and the game's wiring, not whether it sounds good or funny.
+
+- `musicbox check`: no errors or warnings. The analysis lists four strong-beat notes outside the chord and some chromatic notes outside D major. All are intended: the walking bass's approach note, the bassoon's chromatic stair, the march's climb back to the top, and the loss stinger's wobble. The win stinger is the first score's, note for note.
+- `npm test` passed (55 tests). Includes the cue and intensity rule (desk, trial from Run, stingers, one layer each for LOW health and the red clock, two for both).
+- `npm run test:browser` passed. Includes: the music starts on the first click; the win stinger follows a win, the desk a restart, the trial the first move; the Music switch stops and restarts it without touching the sound effects; Pause lowers it and Continue restores it. These read the player's state, not the audio output.
+- The first score only: a scripted tutorial run in the browser went desk → trial → won → desk by itself after the stinger; Restart did not restart the desk music; no browser errors. The comedy score keeps the same cue names and switches.
+- Levels by offline render, matched to the first score: see `GAME_NOTES.md`.
+- `node tools/build.mjs` now ships `assets/music/` and `vendor/`. Without them, the check fails and names `vendor/musicbox/player.js` and the score, which a deploy would otherwise have dropped.
+
+Not checked: how it sounds, on any speakers or headphones; CPU cost on a phone; Safari, where audio rules are strictest.
+
 ## Dark palette (2026-11-14)
 
 Colours, borders, corners and shadows only; details in `GAME_NOTES.md`.

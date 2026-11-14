@@ -167,11 +167,13 @@ async function stubbedLlmFlow(page, url) {
   assert.match(await page.eval('document.querySelector("#run-status").textContent'), /^Paused during turn 2\./);
   assert.match(await page.eval('document.querySelector("#run").textContent'), /Continue/);
   assert.equal(await page.eval('document.querySelector("#run").disabled || document.querySelector("#orders").disabled'), false, 'Continue and the orders are available at once');
+  const pausedVolume = await snap('music.volume');
   await page.waitFor('QuestDemo.snapshot().prepared >= 1');
   await page.eval('scrollTo(0,0)');
   await page.screenshot(join(artifacts, 'flow-paused.png'));
   await page.click('#run');
   assert.equal(await snap('paused'), false);
+  assert.ok(pausedVolume < await snap('music.volume'), 'Pause lowers the music, and Continue restores it');
   await page.waitFor('QuestDemo.snapshot().game.turn === 3', 15000);
   assert.equal(await snap('lastDecision.preparedAhead'), true, 'The decision prepared during the pause is used');
   assert.equal(await page.eval('window.__stub.turns.filter(turn => turn === 2).length'), 1, 'Turn 3 was asked for once, before Continue');
@@ -387,6 +389,21 @@ try {
     await page.click('[data-level="tutorial"]');
     for(const id of ['depart','quick','quick','advance','advance','finish'])await page.click(`[data-action="${id}"]`);
     assert.equal(await page.eval('QuestDemo.snapshot().game.status'),'won');
+    // Music (no audio is checked, only what the player is asked to play): the win stinger once the win shows, the desk after
+    // a restart, the trial from its first turn, and a separate switch that stops and restarts it.
+    const music = () => page.eval('QuestDemo.snapshot().music');
+    assert.equal((await music()).started, true, 'Music starts on the first click');
+    await page.waitFor('QuestDemo.snapshot().music.cue === "won"', 5000);
+    await page.click('#reset');
+    assert.equal((await music()).asked, 'desk');
+    await page.click('[data-action="depart"]');
+    await page.waitFor('QuestDemo.snapshot().music.cue === "trial"', 5000);
+    await page.click('#music');
+    assert.deepEqual([(await music()).started, await page.eval('document.querySelector("#music").getAttribute("aria-pressed")'), await page.eval('QuestDemo.snapshot().sound')], [false, 'false', true], 'The music switch leaves the sound effects alone');
+    await page.click('#music');
+    assert.equal((await music()).cue === 'trial' || (await music()).asked === 'trial', true, 'Switched back on, it resumes the trial music');
+    await page.click('#reset');
+    for(const id of ['depart','quick','quick','advance','advance','finish'])await page.click(`[data-action="${id}"]`);
     // Next assignment walks through the two middle assignments to the full circuit. Each is won through the real controls.
     const middle = {
       warning: { stops: 5, goals: 4, win: ['depart','quick','quick','advance','guard','quick','guard','advance','quick','quick','quick','advance','advance','finish'] },
@@ -409,7 +426,7 @@ try {
     await page.viewport(1440,1100);
     await stubbedLlmFlow(page, `http://127.0.0.1:${server.address().port}/`);
     await writeFile(join(artifacts,'browser-report.json'),JSON.stringify({kind:'manual UI verification plus LLM-mode interface flow with a stub worker; no model inference',result,errors:page.errors},null,2));
-    console.log(`Browser UI passed: desktop, 390px, 360px, potion costs, restart, complete victory in ${result.game.turn} turns.`);
+    console.log(`Browser UI passed: desktop, 390px, 360px, potion costs, restart, complete victory in ${result.game.turn} turns, music cues and switch.`);
     console.log('LLM-mode interface flow passed with a stub worker (no inference): load, thinking, stale reply, parse failure and retry, edited orders, turn playback with prepared decisions, pause during playback and during thinking, turn-by-turn pace, skip.');
   } else {
     // The test profile can be persistent (QUEST_PROFILE), so orders saved by an earlier run must not leak into this one.

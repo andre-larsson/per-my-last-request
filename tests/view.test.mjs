@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { newGame, applyAction, availableActions, TILES, LOW_HP, observation, nextMove, strikeDamage, commendations, PRESETS, TUTORIAL_PRESETS, LEVELS, LEVEL_ORDER } from '../src/game.js';
-import { objectiveSteps, sceneFor, deltas, journalHtml, verdictFor, verdictHtml, actionTally, ordersSize, estimateTokens, TILE_ART, turnBeats, displayAt, turnFeedHtml, shoutFor, BEAT_MS } from '../src/view.js';
+import { objectiveSteps, sceneFor, deltas, journalHtml, verdictFor, verdictHtml, actionTally, ordersSize, estimateTokens, TILE_ART, turnBeats, displayAt, turnFeedHtml, shoutFor, BEAT_MS, musicFor, clockUrgent } from '../src/view.js';
 import { renderMap, mapLayout } from '../src/map.js';
 
 const play = (state, ...ids) => ids.reduce((s, id) => applyAction(s, id), state);
@@ -292,4 +292,20 @@ test('the play-by-play names the choice, strikes through the rest, and reveals l
   const kept = feed(Infinity);
   assert.equal((kept.match(/beat [^"]*shown/g) || []).length, 3);
   assert.equal(/\bnow\b/.test(kept), false);
+});
+
+test('the music follows the trial: desk, trial, stingers, and one layer each for LOW health and the red clock', () => {
+  const fresh = newGame('circuit');
+  assert.deepEqual(musicFor(fresh), { cue: 'desk', intensity: 0 });
+  assert.deepEqual(musicFor(fresh, true), { cue: 'trial', intensity: 0 }, 'A run starts the trial music before its first turn shows');
+  const urgentFrom = fresh.turnLimit - Math.ceil(fresh.turnLimit / 4);
+  const at = (turn, hp) => musicFor({ ...fresh, status: 'active', turn, hp });
+  assert.deepEqual(at(1, fresh.hp), { cue: 'trial', intensity: 0 });
+  assert.equal(at(urgentFrom - 1, LOW_HP + 1).intensity, 0);
+  assert.equal(clockUrgent({ ...fresh, turn: urgentFrom }), true, 'The music and the red turn counter share one rule');
+  assert.equal(at(urgentFrom, LOW_HP + 1).intensity, 1, 'The red clock adds a layer');
+  assert.equal(at(5, LOW_HP).intensity, 1, 'Health at LOW adds a layer');
+  assert.equal(at(urgentFrom, LOW_HP).intensity, 2, 'Both add two');
+  assert.deepEqual(musicFor({ ...fresh, status: 'won', turn: 30, hp: 3 }), { cue: 'won', intensity: 0 });
+  assert.deepEqual(musicFor({ ...fresh, status: 'lost', turn: 13, hp: 0 }), { cue: 'lost', intensity: 0 });
 });

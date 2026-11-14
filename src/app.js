@@ -3,8 +3,9 @@ import { parseDecision, decisionMessages } from './protocol.js';
 import { LocalModel } from './model.js';
 import { renderMap } from './map.js';
 import { MODELS, findModel, modelSize, checkDevice, recommendModel, selectedModelAdvice } from './models.js';
-import { escapeHtml, artUrl, objectiveSteps, sceneFor, journalHtml, verdictFor, verdictHtml, stampTarget, ordersSize, turnBeats, displayAt, turnFeedHtml, shoutFor, PACES, PACE_ORDER, BEAT_MS } from './view.js';
+import { escapeHtml, artUrl, objectiveSteps, sceneFor, journalHtml, verdictFor, verdictHtml, stampTarget, ordersSize, turnBeats, displayAt, turnFeedHtml, shoutFor, PACES, PACE_ORDER, BEAT_MS, clockUrgent, musicFor } from './view.js';
 import { unlockSound, setSoundEnabled, playSound } from './sound.js';
+import { unlockMusic, setMusicEnabled, setMusic, musicPlaying, musicState } from './music.js';
 
 const $ = id => document.getElementById(id);
 
@@ -51,6 +52,8 @@ let pace = PACES[stored('pmlq.runPace', 'step')] ? stored('pmlq.runPace', 'step'
 let instant = false; // Tools only: turns resolve with no playback at all.
 let soundOn = stored('pmlq.sound', 'on') !== 'off';
 if (!soundOn) setSoundEnabled(false); // Otherwise audio starts on the first click or key press, as browsers require.
+let musicOn = stored('pmlq.music', 'on') !== 'off';
+if (!musicOn) setMusicEnabled(false);
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
 let epochSignal = deferred();
 /** Invalidates every pending and prepared model reply, and wakes anything waiting on one. */
@@ -262,7 +265,7 @@ function renderBrief(s) {
   $('turn-value').textContent = `${s.turn} / ${s.turnLimit}`;
   $('turn-bar').style.width = `${s.turn / s.turnLimit * 100}%`;
   $('turn-left').textContent = left === 0 ? 'none left' : `${left} left`;
-  $('deadline').className = `deadline${left <= Math.ceil(s.turnLimit / 4) ? ' urgent' : ''}`;
+  $('deadline').className = `deadline${clockUrgent(s) ? ' urgent' : ''}`;
 }
 /** The exact prompt behind a decision: the one being made now, or, during playback, the one just made. */
 function renderPrompt(state, actions) {
@@ -386,8 +389,11 @@ function renderControls(s) {
   $('pace').title = `${PACES[pace].label}: ${PACES[pace].note} Click for ${next.label}.`;
   $('pace').setAttribute('aria-label', `Pace: ${PACES[pace].label}. ${PACES[pace].note} Change to ${next.label}`);
   $('sound').setAttribute('aria-pressed', String(soundOn));
-  $('sound').innerHTML = `<span aria-hidden="true">♪</span> ${soundOn ? 'On' : 'Off'}`;
+  $('sound').innerHTML = `<span aria-hidden="true">♪</span> <span class="wide-only">Sound: </span>${soundOn ? 'On' : 'Off'}`;
   $('sound').setAttribute('aria-label', `Sound effects ${soundOn ? 'on' : 'off'}`);
+  $('music').setAttribute('aria-pressed', String(musicOn));
+  $('music').innerHTML = `<span aria-hidden="true">♫</span> <span class="wide-only">Music: </span>${musicOn ? 'On' : 'Off'}`;
+  $('music').setAttribute('aria-label', `Music ${musicOn ? 'on' : 'off'}`);
 }
 // The loaded model counts the tokens of the orders with its own tokenizer, shortly after typing stops.
 // Counting never waits for or delays a decision; if it fails, the estimate stays.
@@ -455,11 +461,17 @@ function render() {
   renderController();
   renderMapRegion(s);
   paint('journal', `${epoch}:${s.log.length}`, () => { $('journal').innerHTML = journalHtml(s.log); });
+  renderMusic(s);
+}
+/** The music follows the stage, not the engine, so the win and loss stingers wait for the turn's last beat. Pause lowers it. */
+function renderMusic(s) {
+  setMusic({ ...musicFor(s, running), paused });
 }
 
 /** One beat's sounds, floating numbers and screen-reader line. The stage itself is drawn by render(). */
 function showBeat(beat, entry) {
-  beat.sounds.forEach((name, i) => playSound(name, i * 0.16));
+  // With music on, the win and loss stingers take the place of the chimes.
+  beat.sounds.filter(name => !(musicPlaying() && (name === 'won' || name === 'lost'))).forEach((name, i) => playSound(name, i * 0.16));
   const stacked = { hero: 0, foe: 0 };
   for (const fx of beat.fx) {
     const card = $(fx.card === 'hero' ? 'hero-card' : 'foe-card');
@@ -744,9 +756,19 @@ $('sound').addEventListener('click', () => {
   if (soundOn) setTimeout(() => playSound('choose'), 120); // A sample, so the player hears what was switched on.
   render();
 });
+$('music').addEventListener('click', () => {
+  musicOn = !musicOn;
+  store('pmlq.music', musicOn ? 'on' : 'off');
+  setMusicEnabled(musicOn);
+  render();
+});
+// The music starts on the first gesture, except a press of its own switch: switching it off should not first start it.
+for (const type of ['pointerdown', 'keydown']) $('music').addEventListener(type, event => event.stopPropagation());
 // Browsers allow audio only after a gesture.
 document.addEventListener('pointerdown', unlockSound);
 document.addEventListener('keydown', unlockSound);
+document.addEventListener('pointerdown', unlockMusic);
+document.addEventListener('keydown', unlockMusic);
 $('orders').addEventListener('input', saveOrders);
 document.querySelectorAll('[data-mode]').forEach(button => button.addEventListener('click', () => setMode(button.dataset.mode)));
 document.querySelectorAll('[data-level]').forEach(tab => tab.addEventListener('click', () => setLevel(tab.dataset.level)));
@@ -777,7 +799,7 @@ window.addEventListener('beforeunload', () => model.dispose());
 // `setReadAhead(n)` limits how many decisions the model prepares ahead (0: none, as a test of plain waiting).
 window.QuestDemo = {
   countTokens: text => model.countTokens(text),
-  snapshot: () => structuredClone({ game, mode, level, running, paused, stopEachTurn: stopEachTurn(), reviewing: reviewing ? reviewing.entry.turn : null, prepared: [...prepared.values()].filter(entry => entry.promise.settled).length, thinking: deciding(), phase, playing: Boolean(playback), beat: playback ? playback.index : null, beatKinds: playback ? playback.beats.map(beat => beat.kind) : null, awaitingModel, modelBusy: modelBusy > 0, pace, instant, sound: soundOn, modelReady: model.ready, status, lastDecision, orders: runOrders, device, checkingDevice, recommendation: recommendation?.model?.id || null }),
+  snapshot: () => structuredClone({ game, mode, level, running, paused, stopEachTurn: stopEachTurn(), reviewing: reviewing ? reviewing.entry.turn : null, prepared: [...prepared.values()].filter(entry => entry.promise.settled).length, thinking: deciding(), phase, playing: Boolean(playback), beat: playback ? playback.index : null, beatKinds: playback ? playback.beats.map(beat => beat.kind) : null, awaitingModel, modelBusy: modelBusy > 0, pace, instant, sound: soundOn, music: musicState(), modelReady: model.ready, status, lastDecision, orders: runOrders, device, checkingDevice, recommendation: recommendation?.model?.id || null }),
   loadModel,
   setPace: name => { if (name === 'instant') instant = true; else if (PACES[name]) { pace = name; instant = false; } render(); },
   hold: beat => { holdAt = Number.isInteger(beat) ? beat : null; },

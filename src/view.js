@@ -1,6 +1,6 @@
 // Pure presentation helpers. They read game state and return plain data or HTML strings.
 // Rules and outcomes stay in game.js; nothing here changes a game.
-import { TILES, LEVELS, levelOf, nextLevel, currentTile, assignmentReady, nextMove, guardBlock, counterDamage, commendations, PRICES, SWORD_BONUS, BUCKLER_BLOCK, BENCH_HP, MEDIC_HP } from './game.js';
+import { TILES, LEVELS, levelOf, nextLevel, currentTile, assignmentReady, nextMove, guardBlock, counterDamage, commendations, PRICES, SWORD_BONUS, BUCKLER_BLOCK, BENCH_HP, MEDIC_HP, LOW_HP } from './game.js';
 
 export const escapeHtml = value => String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -302,4 +302,15 @@ export function ordersSize(text, counted = null) {
     label: `${plural(words, 'word')} · ${exact ? '' : 'about '}${plural(tokens, 'token')}`,
     note: exact ? `Tokens counted by ${counted.by}.` : 'Tokens estimated from the length. A loaded model counts them exactly.',
   };
+}
+
+/** The clock turns red with a quarter of the turns left. */
+export const clockUrgent = s => s.turnLimit - s.turn <= Math.ceil(s.turnLimit / 4);
+/**
+ * Which music cue fits what the stage shows: the desk while writing and between runs, the trial from the first Run until it ends,
+ * then a win or loss stinger. During a trial, health at LOW and the red clock each add a layer (intensity 0–2).
+ */
+export function musicFor(s, running = false) {
+  const cue = s.status === 'won' ? 'won' : s.status === 'lost' ? 'lost' : running || s.turn > 0 ? 'trial' : 'desk';
+  return { cue, intensity: cue === 'trial' ? (s.hp <= LOW_HP ? 1 : 0) + (clockUrgent(s) ? 1 : 0) : 0 };
 }

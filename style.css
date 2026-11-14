@@ -270,7 +270,7 @@ button.option:hover:not(:disabled) { border-color: var(--ochre); background: #2b
 .controls-top { display: flex; align-items: center; justify-content: space-between; gap: 4px 12px; }
 .playback-settings { display: flex; flex: none; gap: 2px; }
 .playback-settings .ghost.small { min-height: 36px; white-space: nowrap; }
-#sound[aria-pressed='false'] { color: #6b5e4f; }
+#sound[aria-pressed='false'], #music[aria-pressed='false'] { color: #6b5e4f; }
 .run-status { flex: 1 1 auto; min-width: 0; font-size: 15px; font-weight: 500; color: var(--muted); }
 .run-status::before { content: '✎'; margin-right: 8px; color: var(--ochre); }
 .run-status.busy { color: var(--green); font-weight: 650; }

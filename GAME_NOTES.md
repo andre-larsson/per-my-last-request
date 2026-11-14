@@ -118,7 +118,7 @@ User request: make each decision and its consequences easy to follow, with sound
 - **The model reads ahead** (since 2026-11-14 evening, up to 3 decisions; see the next section). Each decision records `preparedAhead` and `waitedMs` (visible wait beyond the 1.4 s minimum, pauses left out).
 - **Measured with the real model** (Qwen 2.5 3B, RTX 4090, careful orders, normal pace): 24 of 26 circuit decisions were ready before their options went up; the hero visibly waited 0 ms in total; the circuit took 122 s on screen (the old flow took roughly 26 × (0.7 s model + 0.7 s pause) plus forced moves, about 40 s). Slower GPUs are unmeasured; `waitedMs` in the exported report shows it.
 - **Manual sandbox** plays turns back too, with a shorter choice beat; no new action can be clicked until the turn finishes or is skipped.
-- **Sound** (`src/sound.js`): synthesized WebAudio, no files, on by default with a ♪ toggle stored per browser. A rubber-stamp thunk for every decision (the guild runs on paperwork), whoosh-and-thwack strikes, a wooden knock for raising a guard, a muted clang when a hit lands on the guard, a low thud when the hero is hurt, a soft huff when the opponent idles, low "heartbeat" pulses when a SMASH is announced, chimes for healing, coins, stamps, win and loss. Kept low and short; no loops. Offline levels: −25 to −37 dB RMS for most cues, footsteps and the idle huff quieter, peaks ≤ 0.42.
+- **Sound** (`src/sound.js`): synthesized WebAudio, no files, on by default with a ♪ toggle stored per browser (`pmlq.sound`; music has its own, `pmlq.music`, see Music). A rubber-stamp thunk for every decision (the guild runs on paperwork), whoosh-and-thwack strikes, a wooden knock for raising a guard, a muted clang when a hit lands on the guard, a low thud when the hero is hurt, a soft huff when the opponent idles, low "heartbeat" pulses when a SMASH is announced, chimes for healing, coins, stamps, win and loss. Kept low and short; no loops. Offline levels: −25 to −37 dB RMS for most cues, footsteps and the idle huff quieter, peaks ≤ 0.42.
 - **Height:** the play-by-play and the situation text share one grid cell, so the stage is as tall as the taller of the two. This leaves some blank stage under the situation text after a busy turn, but the Run/Pause button does not jump between turns.
 
 ## Pause, stop after each turn, less repetition (2026-11-14, provisional until playtested)
@@ -133,6 +133,28 @@ User report: the information during play was confusing; Pause seemed not to paus
 - **One place per kind of information.** The turn card under the controls is gone: it repeated the stage's play-by-play while a turn played and the report after. The stage shows the turn being played (or kept at a stop); otherwise the situation for the next decision. The status line now says what the run is doing (running, paused, thinking, stopped) instead of "Decision made in 0.4 seconds". The counter reads "Turns used", and the options are numbered as the turn being decided ("Turn 7 · The hero weighs 5 options…"), so "Turn 6" no longer means two things at once.
 - **Fixed on the way:** when the opponent acted on a turn's last beat, its box said "Now" over the *next* announced move (e.g. "Now: Smash, Charge" while the line said "Gore hit for 4"), because the last beat shows the state after the turn. Pause made this easy to see. Also, after a model error, a retry returned the same failed reply instead of asking again.
 - In the Manual sandbox and in continuous runs, the previous turn is visible only while it plays and in the report. If that proves too little, the stop-each-turn mode is the intended answer, not a second copy of the turn.
+
+## Music (added 2026-11-14, rewritten the same day as cartoon comedy; provisional until the user has listened again)
+
+User choices: own cues for the desk, the trial and the win and loss stingers (fights share the trial cue); the trial builds on LOW health and the red clock; a separate Music switch, on by default. The first score was "sparse dread". After listening, the user asked for "more comedic/silly music, like the simpsons or south park". They liked the ambience and called the win stinger cinematic. So the second score keeps the beds and the win stinger note for note and turns everything else into cartoon comedy. The melodies are original: no theme or motif from either show.
+
+- **Score**: `assets/music/after-hours.scrim`, a musicbox text score. D major. No sea, bells or celesta, to stay clear of Brinelight. The beds are the first score's: a low D hum and a cold wind ("the guild after hours"), quieter than before under the desk and the trial.
+  - **desk**: writing orders, loading, reading the report. A swung office shuffle at 92 bpm. A walking upright bass, pizzicato chords on two and four, and a soft shaker. A bassoon tiptoes up a chromatic stair and a clarinet answers, and in one variant they swap. The xylophone plinks now and then. Five patterns, picked at random. One of them (desk_D, also the intro) is nearly empty: the hum, a soft chord and a bassoon yawn, which keeps some of the old ambience and gives the ear a rest.
+  - **trial**: from Run (or the first manual move) until the trial ends. A galumphing march at 116 bpm: tuba oom on one and three, banjo pah on two and four, a clarinet tune that ends with an octave plop. A slide whistle whoops it in. Variants: the tune in the minor with a chromatic climb back, the xylophone taking the tune, and a tiptoe section where the band drops out. **Layer 1** (health at LOW, or the clock in the red, each counts one): a woodblock gallop, a trumpet doubling the tune, and frantic xylophone arpeggios. **Layer 2** (both): brass stabs on the offbeats, a tambourine, a crash. There is still no heartbeat rhythm, since the SMASH warning sound already is one.
+  - **won**: unchanged from the first score: the minor key lifts to one held D major chord, then hands back to the desk. The score keeps that score's reverb (0.45) and hum level so that it sounds the same. **lost**: a sad-brass "wah, wah, wah-a-a-a" with a slide whistle falling first. The tuba sits down with a bonk, the bassoon shrugs twice, then the desk returns. With music on, they replace the win and loss chimes.
+- **Rule**: `musicFor(state, running)` in `src/view.js` (tested in `tests/view.test.mjs`). It reads what the stage shows, so stingers wait for the turn's last beat. `clockUrgent` is shared with the red turn counter.
+- **Player**: `src/music.js` wraps musicbox's `MusicPlayer`, vendored unmodified in `vendor/musicbox/` from github.com/andre-larsson/musicbox commit `e371a2c` (with `LICENSE` and `NOTICE`, Apache 2.0). It has its own AudioContext, so the two switches are independent. Pause lowers the music by 8 dB. A score that fails to load or compile leaves the game silent of music and logs a warning. `tools/build.mjs` ships `assets/music/` and `vendor/` and checks the `../` imports, so a deploy cannot drop them.
+- **Levels** (offline render at music volume 0.25; the sound effects measure −25 to −37 dB RMS). The comedy score was balanced to the first score's levels. Plain RMS overweights bass, so it was matched on K-weighted loudness (LUFS-style, ungated):
+
+  | Cue | First score (RMS / K-weighted) | Comedy score (RMS / K-weighted) |
+  |---|---|---|
+  | desk | −36.5 / −33.4 | −36.0 / −32.8 |
+  | trial, intensity 0 / 1 / 2 | −35.0 / −31.6, −31.3 / −28.0, −29.9 / −26.8 | −34.7 / −31.1, −31.0 / −27.6, −30.1 / −26.8 |
+  | won | −31.8 / −29.3 | −32.5 / −29.9 |
+  | lost | −33.0 / −30.0 | −33.2 / −30.3 |
+
+  Peaks −14.6 dBFS or lower. At first the comedy desk and trial came out 5 to 6 dB louder. The walking bass and the tuba carried most of that, so they were cut most. The banjo, pizzicato and shaker, which measured 15 to 30 dB under the bass, were raised.
+- **Editing**: `npx -y github:andre-larsson/musicbox check assets/music/after-hours.scrim` checks a change; `… link FILE` gives an editor link to listen; `… link --decode 'LINK'` reads back a score the user edited there. The first ("sparse dread") score is kept, unused, in `assets-src/music/after-hours-dread.scrim`.
 
 ## Browser setup guide (added 2026-11-14)
 
@@ -166,7 +188,7 @@ Style preamble, used at the start of every request (full requests in `assets-src
 
 ## Determinism
 
-The engine is deterministic: no randomness, fixed course. Model output is not guaranteed to repeat across devices or model builds.
+The engine is deterministic: no randomness, fixed course. The music rolls its own dice (random patterns and notes) and never reads or changes game state. Model output is not guaranteed to repeat across devices or model builds.
 
 ## Open playtest questions
 
@@ -188,6 +210,7 @@ The engine is deterministic: no randomness, fixed course. Model output is not gu
 - Turn playback: can you tell, without reading the report, what the hero chose, what the opponent did, and whether the guard paid off? Which cue told you most: the speech bubble, the struck-through options, the play-by-play, or the sounds?
 - Is normal pace readable without feeling slow? Which pace did you settle on, and did you use Skip?
 - Do any sounds grate after a full circuit (the stamp thunk plays every decision)? Is the SMASH warning noticeable?
+- Music: is the comedy funny, or does it grate over a long writing session at the desk? Is the bassoon too busy while you write? Is the trial march too fast or too slow for the turn pace? Do you notice the trial getting more frantic when health is LOW or the clock turns red? Does the music hide any sound effect (the SMASH warning especially)? Does the sad-brass loss land as a joke? Is 16 seconds of win stinger too long before the desk returns?
 - On your machine, does the hero ever visibly wait for the model mid-run ("still reading your orders")?
 - Does the blank stage space under the situation text after a busy turn bother you more than a jumping Pause button would?
 - On a laptop, do you miss the map while watching a run?

@@ -1,0 +1,179 @@
+title    After Hours at the Guild
+composer Per My Last ReQuest
+about    Cartoon comedy for a guild that runs on paperwork. The desk shuffles along on bassoon and pizzicato while you write; a trial is a galumphing tuba march, and health at LOW or a red clock each add a layer of panic.
+tempo    92
+beats    4
+steps    2        # the desk: 8 steps per bar, eighth notes with a swing. The trial and the stingers set their own.
+swing    0.25
+reverb   0.45
+key      D major
+
+# A low hum and a cold draught under the comedy, for the guild after hours. No sea and no bells: that is Brinelight's sound.
+bed hum     drone vol=0.4  note=D2 swell=12
+bed draught wind  vol=0.2  bright=0.5 swell=9
+
+# The desk
+voice bass   upright   vol=0.27 gate=0.55
+voice comp   pizz      vol=0.5  center=F#4 gate=0.6 pan=0.25
+voice bsn    bassoon   vol=0.29 gate=0.7 pan=-0.2
+voice clar   clarinet  vol=0.25 gate=0.85 pan=0.25
+voice xylo   xylophone vol=0.55 center=A5 chance=0.5 jitter=0.04 pan=0.35
+voice brush  shaker    vol=0.4  chance=0.85 pan=0.4
+voice pad    pad       vol=0.32 center=F4 att=2.5 rel=3.5 rev=0.5
+# The trial, layer 0: tuba oom, banjo pah, a clarinet tune
+voice tuba   tuba      vol=0.29 gate=0.55
+voice strum  banjo     vol=0.5  center=F#4 gate=0.5 pan=0.3
+voice tune   clarinet  vol=0.24 pan=-0.1
+voice xmel   xylophone vol=0.3  pan=0.2
+voice kick   kick      vol=0.2
+voice snare  snare     vol=0.25 pan=0.1
+voice slide  flute     vol=0.35 glide=0.3 pan=-0.3
+# Layer 1: the hero's health is LOW, or the clock is in the red. A woodblock gallop, a trumpet on the tune, a frantic xylophone.
+voice block  block     vol=0.35 layer=1 pan=-0.35
+voice trump  trumpet   vol=0.35 layer=1 pan=-0.25
+voice xrun   xylophone vol=0.3  layer=1 center=D5 arp=updown span=2 pan=0.4
+# Layer 2: both at once. Brass stabs on the offbeats, a tambourine, a crash.
+voice stab   brass     vol=0.5  layer=2 center=A4 gate=0.4
+voice tamb   tamb      vol=0.35 layer=2 pan=0.4
+voice crash  crash     vol=0.3  layer=2 pan=-0.2
+# The stingers' own voices, so they play at any intensity
+voice low    strings   vol=0.17 att=1.2 rel=2.5 pan=-0.1
+voice call   horn      vol=0.45 att=0.4 rel=2
+voice wah    brass     vol=0.42 glide=0.08 bright=0.8
+voice bonk   tomlo     vol=0.7
+
+# ------------------------------------------------------------- desk: writing orders, loading, reading the report
+# A walking pizzicato bass, a bassoon that tiptoes up a chromatic stair, a clarinet that answers
+pattern desk_A
+harmony | D6 | Bm7 | Em7 | A7 |
+bass    | D2:2 F#2:2 A2:2 B2:2 | B1:2 D2:2 F#2:2 F2:2 | E2:2 G2:2 B2:2 G2:2 | A1:2 C#2:2 E2:2 C#2:2 |
+comp    | .:2 [*] . .:2 [*] . | % | % | % |
+bsn     | D3 . A2 . B2 C3 C#3 D3 | F#3:2 D3 . B2:2 .:2 | _ | _ |
+clar    | _ | _ | .:2 G4 B4 D5:2 B4 . | . C#5 . E5 G5:2 .:2 |
+brush   | o.x.o.x. | % | % | % |
+
+# The same, with the clarinet asking and the bassoon answering
+pattern desk_A2 from desk_A
+bsn     | _ | _ | .:2 G2 B2 D3:2 B2 . | . C#3 . E3 G3:2 .:2 |
+clar    | D4 . A3 . B3 C4 C#4 D4 | F#4:2 D4 . B3:2 .:2 | _ | _ |
+
+# The clarinet's tune; the major chord sags to minor at the end, like a shrug
+pattern desk_B
+harmony | D6 | D7 | G6 | Gm6 |
+bass    | D2:2 A1:2 D2:2 A1:2 | D2:2 F#2:2 A2:2 C3:2 | G1:2 B1:2 D2:2 E2:2 | G1:2 Bb1:2 D2:2 E2:2 |
+comp    | .:2 [*] . .:2 [*] . | % | % | % |
+clar    | F#4 A4 . F#4 B4:2 A4 . | C5:3 B4 A4 F#4 D4 . | .:2 B4 D5 E5:2 D5 . | Bb4:3 A4 G4:2 .:2 |
+xylo    | _ | _ | _ | .:6 {D6 E6 G6 .}:2 |
+brush   | o.x.o.x. | % | % | % |
+
+# Round the circle of fifths, the bassoon hopping down the chords
+pattern desk_C
+harmony | Em7 | A7 | F#m7 B7 | Em7 A7 |
+bass    | E2:2 B1:2 E2:2 G2:2 | A1:2 E2:2 A2:2 G2:2 | F#2:2 C#2:2 B1:2 D#2:2 | E2:2 G2:2 A1:2 C#2:2 |
+comp    | .:2 [*] . .:2 [*] . | % | % | % |
+bsn     | G3 . E3 . B2 C3 C#3 D3 | C#3:2 . E3 G3:2 .:2 | A3 . F#3 . D#3 . B2 . | E3 G3 B3 . A3 G3 E3 C#3 |
+xylo    | {E5 G5 B5 .}:2 .:6 | {A5 C#6 E6 .}:2 .:6 | _ | _ |
+brush   | o.x.o.x. | % | % | % |
+
+# A breather: the hum, a soft chord, the odd xylophone note, and a bassoon yawn
+pattern desk_D
+harmony | D6 | = | Gm6 | D6 |
+bass    | D2:4 A1:4 | D2:4 A1:4 | G1:4 Bb1:4 | D2:8 |
+pad     | [*]??:8 | -:8 | [*]??:8 | [*]??:8 |
+comp    | .:2 [*]? .:5 | % | % | % |
+xylo    | {D5 F#5 A5 B5 .}:2 .:6 | _ | {Bb5 D6 .}:2 .:6 | {A5 D6 .}:2 .:6 |
+bsn     | _ | _ | .:4 D3:2 Bb2:2 | A2:6 .:2 |
+
+# ------------------------------------------------------------- trial: walking the circuit and fighting
+# A slide whistle whoops up, and off we go
+pattern set_out tempo=116 steps=4 swing=0
+harmony | A7 |
+slide   | E5 ~A5:7 .:8 |
+tuba    | .:8 A1:2 C#2:2 E2:2 G2:2 |
+snare   | .... .... x.x. xxXX |
+
+# The march: tuba on one and three, banjo on two and four, the clarinet's tune ends with a plop
+pattern trial_A tempo=116 steps=4 swing=0
+harmony | D | G | A7 | D |
+tuba    | D2:4 .:4 A1:4 .:4 | G1:4 .:4 D2:4 .:4 | A1:4 .:4 E2:4 .:4 | D2:4 .:4 A1:4 .:4 |
+strum   | .:4 [*]:2 .:6 [*]:2 .:2 | % | % | % |
+tune    | A4:2 . A4 F#4:2 A4:2 D5:4 B4:2 A4:2 | G4:2 . G4 B4:2 G4:2 D5:4 E5:2 D5:2 |
+tune    | C#5:2 . C#5 E5:2 C#5:2 A4:2 G4:2 E4:2 C#4:2 | D5:4 .:2 A4 . D4:4 .:4 |
+trump   | A4:2 . A4 F#4:2 A4:2 D5:4 B4:2 A4:2 | G4:2 . G4 B4:2 G4:2 D5:4 E5:2 D5:2 |
+trump   | C#5:2 . C#5 E5:2 C#5:2 A4:2 G4:2 E4:2 C#4:2 | D5:4 .:2 A4 . D4:4 .:4 |
+kick    | x... .... x... .... | % | % | % |
+snare   | .... x..o .... x.o. | % | % | % |
+xrun    | [*]:16 | % | % | % |
+block   | x.xx x.xx x.xx x.xx | % | % | % |
+stab    | .:2 [*]!:2 .:2 [*]:2 .:2 [*]!:2 .:2 [*]:2 | % | % | % |
+tamb    | x.x. x.x. x.x. x.x. | % | % | % |
+crash   | X... .... .... .... | _ | _ | _ |
+
+# The tune in the minor, then a chromatic climb back to the top
+pattern trial_B from trial_A
+harmony | Bm | G | E7 | A7 |
+tuba    | B1:4 .:4 F#2:4 .:4 | G1:4 .:4 D2:4 .:4 | E2:4 .:4 B1:4 .:4 | A1:4 .:4 E2:4 .:4 |
+tune    | F#4:2 . F#4 B4:2 F#4:2 D5:4 C#5:2 B4:2 | B4:2 . B4 D5:2 B4:2 G4:4 .:4 |
+tune    | G#4:2 . G#4 B4:2 D5:2 E5:4 D5:2 B4:2 | C#5:2 B4:2 A4:2 G4:2 E4:2 F4:2 F#4:2 G#4:2 |
+trump   | F#4:2 . F#4 B4:2 F#4:2 D5:4 C#5:2 B4:2 | B4:2 . B4 D5:2 B4:2 G4:4 .:4 |
+trump   | G#4:2 . G#4 B4:2 D5:2 E5:4 D5:2 B4:2 | C#5:2 B4:2 A4:2 G4:2 E4:2 F4:2 F#4:2 G#4:2 |
+
+# The xylophone takes the tune an octave up; the clarinet hums under it
+pattern trial_D from trial_A
+xmel    | A5:2 . A5 F#5:2 A5:2 D6:4 B5:2 A5:2 | G5:2 . G5 B5:2 G5:2 D6:4 E6:2 D6:2 |
+xmel    | C#6:2 . C#6 E6:2 C#6:2 A5:2 G5:2 E5:2 C#5:2 | D6:4 .:2 A5 . D5:4 .:4 |
+tune    | F#4:8 A4:8 | B4:8 G4:8 | A4:8 G4:8 | F#4:8 .:8 |
+
+# Tiptoe: the band drops out, the tuba plucks, the xylophone sneaks about
+pattern trial_C from trial_A
+harmony | Gm6 | D | Gm6 | A7 |
+tuba    | G1:2 .:6 D2:2 .:6 | D2:2 .:6 A1:2 .:6 | G1:2 .:6 D2:2 .:6 | A1:2 .:6 E2:2 .:6 |
+xmel    | D5 . Bb4 . G4 .:3 E5 . D5 . Bb4 .:3 | A4 . F#4 . A4 .:3 D5 .:3 F#5 .:3 |
+xmel    | D5 . Bb4 . G4 .:3 E5 . G5 . Bb5 .:3 | A5 . G5 . E5 .:3 C#5 .:3 A4 .:3 |
+snare   | .... o... .... o... | % | % | % |
+crash   | _ | _ | _ | _ |
+mute strum tune kick trump
+
+# ------------------------------------------------------------- stingers
+# Accepted: unchanged from the first score. The key lifts to D major for one held chord, then back to the desk.
+pattern won tempo=60 steps=2 swing=0
+key     D minor
+harmony | Bb | Gm | D | = |
+pad     | [*]?:8 | [*]?:8 | [*]:8 | -:8 |
+low     | Bb2:8 | G2:8 | D2:8 | -:8 |
+call    | F3:4 D3:4 | G3:8 | F#3:8 | -:8 |
+
+# Incident: a slide whistle falls, the brass goes wah, wah, wah-a-a-a, and the tuba sits down with a bonk.
+pattern lost tempo=72 steps=4 swing=0
+harmony | A7:8 G#dim7:8 | Gm6:8 D:8 | D | = |
+slide   | .:8 A5:2 ~D5:6 | _ | _ | _ |
+wah     | A3:6 .:2 G#3:6 .:2 | G3:6 .:2 F#3:4 ~F3 ~F#3 ~F3 ~F#3 | ~F3 ~F#3 ~F3 ~F#3 F#3:4 .:8 | _ |
+tuba    | A1:6 .:2 G#1:6 .:2 | G1:6 .:2 D2:8 | -:8 .:8 | _ |
+bonk    | .... .... .... .... | .... .... .... .... | .... .... x... .... | _ |
+bsn     | _ | _ | _ | .:4 A2 .:3 D2:4 .:4 |
+
+# ------------------------------------------------------------- arrangement
+cue desk
+beds hum=0.4 draught
+play desk_D
+loop desk_A {desk_B desk_C} {desk_A2 desk_A} {desk_D desk_C}
+
+cue trial
+beds hum=0.4
+play set_out
+loop trial_A trial_B {trial_D trial_A} trial_C
+
+cue won
+beds hum=0.5
+play won
+then desk
+
+cue lost
+beds hum=0.75
+play lost
+then desk
+
+switch desk -> trial at beat fade 2
+switch trial -> desk at bar fade 3
+switch * -> won at beat fade 1.5
+switch * -> lost at beat fade 1.5

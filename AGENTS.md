@@ -4,6 +4,7 @@
 - Plain browser ES modules and CSS, with a Node-only development server. Avoid introducing a frontend framework for this small demo.
 - Run with `npm run play` for a dedicated Chrome window, or `npm start` for the server alone. Run game/protocol tests with `npm test`, UI tests with `npm run test:browser` (manual play plus the LLM-mode controls against a test-injected stub worker; no inference), and real browser inference verification with `npm run test:llm -- --full`.
 - The introductory assignment is the verified end-to-end LLM demonstration. Fair warning and Prize money sit between it and the full circuit, the hardest and last assignment; do not claim a model-controlled victory without new evidence (see `VERIFICATION.md`).
+- The music is a musicbox text score, `assets/music/after-hours.scrim`, played by the vendored player in `vendor/musicbox/`. Check edits with `npx -y github:andre-larsson/musicbox check assets/music/after-hours.scrim`; `GAME_NOTES.md` has the cues, layers and measured levels.
 - Review UI changes with `node tools/shots.mjs` (screenshots of every main state at three window sizes, plus a text-size audit; output in `artifacts/shots/`). Rebuild portraits from `assets-src/raw/` with `python3 tools/art.py`.
 - `GAME_NOTES.md` holds design decisions, the art style preamble, and open playtest questions. Read it first and update it last.
 - `src/view.js` and `src/map.js` are pure presentation: they read game state and return data or markup. Every rule the Rulebook dialog states has a test in `tests/view.test.mjs`; keep the two in step.
