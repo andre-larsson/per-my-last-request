@@ -1,8 +1,8 @@
 // Balance harness. Plays the real engine headlessly; no browser, no model.
 //
-//   node tools/balance.mjs [path/to/engine.js] [--solve] [--json out.json]
+//   node tools/balance.mjs [path/to/engine.js] [--level circuit|warning|prize|tutorial] [--solve] [--json out.json]
 //
-// For the full circuit it reports:
+// For the full circuit (or the assignment given with --level; battles always use circuit opponents) it reports:
 //   1. Order styles: a grid of simple standing orders, played as scripted bots. How many win, and with which approach.
 //   2. Robustness: winning styles replayed with a share of random decisions, a stand-in for an imperfect LLM.
 //   3. Usage: which actions, stops, purchases and commendations winning styles actually use.
@@ -20,6 +20,7 @@ const args = process.argv.slice(2);
 const flag = name => { const i = args.indexOf(name); if (i < 0) return false; args.splice(i, 1); return true; };
 const option = name => { const i = args.indexOf(name); return i < 0 ? null : args.splice(i, 2)[1]; };
 const jsonOut = option('--json');
+const level = option('--level') || 'circuit';
 const runSolver = flag('--solve');
 const enginePath = resolve(args[0] || new URL('../src/game.js', import.meta.url).pathname);
 const G = await import(pathToFileURL(enginePath).href);
@@ -69,7 +70,7 @@ function stylePolicy(style) {
   };
 }
 function playPolicy(policy, { noise = 0, rng = null } = {}) {
-  let s = newGame('circuit');
+  let s = newGame(level);
   let decisions = 0;
   const used = {};
   while (!over(s)) {
@@ -142,14 +143,14 @@ function solve() {
     memo.set(k, r);
     return r;
   };
-  const root = visit(newGame('circuit'));
+  const root = visit(newGame(level));
   return { states: memo.size, winningLines: root.lines, front: root.front };
 }
 
 // ---------- Report ----------
 const pct = x => `${Math.round(x * 100)}%`;
-const report = { engine: enginePath, styles: { total: results.length, winners: winners.length } };
-console.log(`Engine: ${enginePath}\n`);
+const report = { engine: enginePath, level, styles: { total: results.length, winners: winners.length } };
+console.log(`Engine: ${enginePath}\nAssignment: ${level}\n`);
 console.log(`1. ORDER STYLES: ${winners.length} of ${results.length} win (${pct(winners.length / results.length)})`);
 report.styles.byDimension = {};
 for (const [dim, options] of Object.entries(DIMENSIONS)) {
@@ -194,7 +195,7 @@ const allIds = ['quick', 'heavy', 'guard', 'potion', 'retreat', 'medic', 'rest',
 report.usage = Object.fromEntries(allIds.map(id => [id, usage[id] || 0]));
 console.log(`   Styles using each action: ${allIds.map(id => `${id} ${usage[id] || 0}`).join(', ')}`);
 const turns = winners.map(r => r.state.turn).sort((a, b) => a - b);
-if (turns.length) console.log(`   Turns used by winners: min ${turns[0]}, median ${turns[Math.floor(turns.length / 2)]}, max ${turns.at(-1)} of ${newGame('circuit').turnLimit}`);
+if (turns.length) console.log(`   Turns used by winners: min ${turns[0]}, median ${turns[Math.floor(turns.length / 2)]}, max ${turns.at(-1)} of ${newGame(level).turnLimit}`);
 const prize = winners.filter(r => r.state.prizeWon).length;
 console.log(`   Winners who beat the optional bruiser: ${prize} of ${winners.length}`);
 if (G.commendations) {
@@ -215,7 +216,7 @@ for (const e of battleEntries()) {
 }
 
 if (runSolver) {
-  console.log('\n5. SOLVER: exhaustive search of the full circuit');
+  console.log(`\n5. SOLVER: exhaustive search of the ${level} assignment`);
   const t0 = Date.now();
   const solved = solve();
   report.solver = solved;

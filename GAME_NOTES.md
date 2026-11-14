@@ -2,12 +2,48 @@
 
 For the next session. Keep it short.
 
+## Four assignments (added 2026-11-14, provisional until playtested)
+
+User request: "add some more levels … the jump from tutorial level to final one is too much added at once." The previous two-assignment version is commit `5be3f6d` plus the uncommitted pace work.
+
+- **01 First instructions → 02 Fair warning → 03 Prize money → 04 The full circuit.** The two new ones split what the circuit used to add all at once. Each is a course through some of the circuit's own stops, in circuit order, with the same opponents, prices and rules, so nothing learned is unlearned later.
+  - **Fair warning** (`warning`): camp, rat, boar, Quickfoot, home; 3 stamps; 16 turns. New: announced moves, guard and its counter, armor, agility, winded.
+  - **Prize money** (`prize`): the circuit's second half, from the purse to the home stretch (purse, prize bruiser, medic, Quickfoot, armorer, bench, champion); Quickfoot's stamp and the champion; 30 turns (first set at 24, then 28; see the model runs below). New: coins, the optional prize fight, medic, armorer, bench, bracing, the champion, and a clock that starts to matter.
+  - **The full circuit** then adds only the combination: both halves in one trial, 32 turns for 12 stops, commendations.
+- **First drafts teach the new rule.** In both middle assignments, "An unfortunate first draft" is the previous assignment's careful orders, unchanged. The tutorial's orders ("fight … using quick strikes") die at Quickfoot after taking the boar's charges. Fair warning's orders ("Quick strike every turn, except: guard against a SMASH.") die at the champion with both potions unused. The careful orders for Prize money fight the bruiser, buy the sword, guard smashes and drink at LOW, and say to skip the bench and submit as soon as possible (scripted: won on turn 22 of 30).
+- **Rules live in one table**, `LEVELS` in `src/game.js`: course, turn limit, stamps, champion, announced moves, commendations, example orders, objective text. The tutorial and the circuit are unchanged: every prompt, action list and resulting state over 16,367 states of tutorial and circuit play hashes the same as before.
+- **Maps**: the tutorial and the circuit keep their hand-placed layouts. The middle assignments space their stops evenly along the same loop (`spreadLayout` in `src/map.js`). On a phone, Prize money's loop is taller and camp sits a little above the middle so the first labels do not collide.
+- **Tabs**: four in one row when the trial column is wide enough, otherwise two by two (a container query on the tab row).
+- **Commendations** stay in the full circuit only.
+
+Proxies (`node tools/balance.mjs --level …`, the same 540 scripted order styles):
+
+| | Fair warning | Prize money | Full circuit |
+|---|---|---|---|
+| Styles that win | 89% | 92% | 56% |
+| Quick strikes that ignore the enemy | 0 of 60 | 29 of 60 | see above |
+| Median winning trial | 14 of 16 turns | 22 of 30 | 29 of 32 |
+| Turns per stop | 3.2 | 3.3 | 2.7 |
+
+The style grid does not rank the two middle assignments: both are forgiving for scripted bots, which waste no turns. What makes Prize money harder is what the orders must cover (potions, the side bet, shopping, the champion's routine) and the champion: 42 of its 44 losing styles die there. The clock binds the real model, which wastes turns the bots do not (see the model runs).
+
+Known soft spot: Fair warning is also won by heavy strikes that ignore the announcements (the boar dies in two heavy strikes). Only quick strikes that ignore the SMASH lose. It is a gentle step by design.
+
+**Real model (Qwen 2.5 3B, RTX 4090, normal pace), `npm run test:llm -- --levels`:**
+
+- **Fair warning, 16 turns.** Careful orders: **won on turn 15** with 33 HP, both charges guarded, every ordinary hit struck. It drank a potion after Quickfoot at 15 HP, which the orders never mention; that used the one spare turn. First draft: **lost**. It took all three charges unguarded and drank both potions to survive, then ran out of turns on the home stretch (scripted, it dies at Quickfoot instead).
+- **Prize money, how the limit and the careful orders were chosen.** At 24 turns, the first careful orders ("Fight the prize bruiser and buy a sharper sword with the winnings. Quick strike every turn, except: guard against a SMASH and drink a potion when health is LOW.") beat the champion on turn 24 and lost on time. Unordered extras each cost a turn: a potion at 29 HP, a second purchase (a potion), a rest on the bench. At 28 turns, the same orders reached camp and then drank a potion at 34 HP instead of submitting. Three wordings at 28 turns: adding "Do not rest or buy anything else" made the model guard 8 of 9 ordinary hits and lose on time. The circuit-style "retreat from the optional prize fight" made it retreat from the champion as well. "…Fight the prize bruiser, buy only the sharper sword, skip the bench, and submit at camp as soon as you can." won on turn 27. That is the careful example now, and the limit is 30.
+- **Prize money, 30 turns.** Careful orders: **won on turn 27** with 20 HP, all 3 smashes guarded, but 2 of 5 ordinary hits guarded, a potion drunk at 30 HP and an extra potion bought. First draft: **lost on time**. It guarded 7 of 9 ordinary hits and was on the home stretch at turn 30, with the champion beaten (scripted, it dies at the champion instead).
+- What this model does: it guards ordinary hits, drinks and shops unasked, and changes behaviour with small changes of wording. The middle assignments' clocks leave room for that. Both first drafts still fail with the model, but by the clock, not the way the scripted check predicts. Each result is one greedy run on one GPU.
+
+**Known prompt error, not fixed:** the move line for a WINDED opponent says "your strikes deal double" (`moveFact` in `src/protocol.js`), but the engine has never doubled them; the action lines show the true damage. It is left from the stagger design. Fixing it changes the circuit prompt that the probe and the circuit run were measured with, so it needs those re-run.
+
 ## Battle balance (reworked 2026-11-14)
 
 The previous balance is tagged `balance-before`. The user chose all four changes: enemy intents with Guard, an armorer choice with a paying side bet, commendations, and a tighter clock, keeping overall difficulty about the same. **The full circuit only.** The introductory assignment is unchanged; `tests/game.test.mjs` pins its exact prompt text, because it is the verified model demo.
 
 - **Announced moves.** Each circuit opponent repeats a fixed routine and announces its move before the hero acts: *strike* (ordinary hit), *smash* (big hit), *brace* (no hit, strikes deal half), *winded* (no hit, agile cannot dodge). The prompt uses the same capitalised words (SMASH, BRACING, WINDED, LOW) so orders can match them directly.
-- **Guard** (circuit only): deal nothing, block 8 (14 with buckler), +1 stamina. **Guarding a smash counters automatically** for a heavy strike's damage. The first design (guarding a smash staggers; the *next* strike deals double) worked for bots, but Qwen 3B could not follow a two-step rule like "after a stagger, use heavy". The counter keeps the payoff in one decision.
+- **Guard** (from Fair warning on; the circuit originally): deal nothing, block 8 (14 with buckler), +1 stamina. **Guarding a smash counters automatically** for a heavy strike's damage. The first design (guarding a smash staggers; the *next* strike deals double) worked for bots, but Qwen 3B could not follow a two-step rule like "after a stagger, use heavy". The counter keeps the payoff in one decision.
 - **Checklist.** Circuit prompts end with yes/no lines (Enemy about to SMASH, Enemy BRACING, Enemy WINDED, Health LOW, Optional prize fight), in and out of fights. The probe went from 6 to 8 of 10 with it at the time; it also stopped the model drinking potions on the road at high health.
 - Routines: rat Nibble 3; boar Charge 12 → Gore 4; bruiser (20 HP, pays 6) Jab 5 → Haymaker 14 → Showboat; Quickfoot Dart 5 → Dart 5 → Out of breath; champion (**30 HP**) Jab 7 → Raise shield → Overhead smash 18 → Catch breath. Laps add 1 damage per move.
 - **Armorer**: sword (+2) or buckler for 8 coins, potion for 6, each a turn. Without the bruiser you can afford one item, and with it two.
@@ -46,16 +82,30 @@ The previous interface is tagged `ui-before-redesign` for side-by-side compariso
 Decisions made without a playtester. Overrule freely.
 
 - **Three numbered columns**: 1 Write the orders, 2 Watch the trial, 3 Read the report. They become two columns under 1360 px and one under 900 px (trial, report, orders).
-- **The stage is the only dark surface**, so the eye lands on it first. It holds two cards: the hero (HP, stamina, potions, coins, sword) and the current opponent or place. HP numbers are the largest text in the game.
+- **The stage is the lit pit in a dark room** (it was the only dark surface before the dark palette below), so the eye lands on it first. It holds two cards: the hero (HP, stamina, potions, coins, sword) and the current opponent or place. HP numbers are the largest text in the game.
 - **Controls sit directly under the stage** and do not move during a run. Under 900 px they are a fixed bar at the bottom of the screen.
 - **One primary button at a time**: load the model, then run, pause, continue, run again, or next assignment. "Play manually" is offered beside the load button.
 - **Teaching happens in place**: the checklist shows the assignment as steps; each option shows its consequence text from the engine; trait chips are explained on the line under the cards; "What the hero is told this turn" shows the exact prompt. The Rulebook dialog is reference only.
 - **The map moved below the fold** on laptop screens. It is context, and the stage carries the action.
-- **Editing orders mid-trial** now restarts the trial on the next Run or One decision (before, One decision silently kept the old orders). A notice under the letter says so.
+- **Editing orders mid-trial** restarts the trial on the next Run. A notice under the letter says so, and the run button reads "Restart with new orders".
 - **Switching assignment** restores the orders last written for it, instead of overwriting them with the first example.
 - **Pause between decisions**: replaced by turn playback (below). The old fixed 700 ms pause is gone.
 - **Restart is hidden at turn 0.** There is nothing to restart.
 - **Model loading has no total time limit.** It fails after five minutes without a progress report (`LOAD_SILENCE_MS` in `src/model.js`). The old 15-minute cap cut off a 1.7 GB download at 84% on a slow connection.
+
+## Dark palette (2026-11-14, provisional until playtested)
+
+User request: "darker/more edgy, similar to Loop Hero, but without being Loop Hero". The previous cream-paper look is the stylesheet at commit `5be3f6d` plus the uncommitted work before this change. Only colours, borders, corners and shadows changed; layout, sizes and type are the same.
+
+- **The guild office after hours**: soot-black panels, bone text, dried-blood red, tarnished brass. What it borrows from that style: near-black ground, bright art in dark frames, hard 1 px black outlines and hard offset shadows instead of soft blurs, corners cut from 12 px to 3–4 px. What it does not: no pixel art, pixel font or loop-and-cards fiction. The ink-and-gouache portraits and the paperwork jokes stay.
+- **Colour roles**, one job each: **brass** (`--ochre`) is something to press or the current step (primary button, selected tab and mode, links, step numbers); **lichen green** (`--green`) is the hero, gains, done and chosen; **ember red** (`--rust` for text, `--blood` for fills under white text) is the enemy, damage and danger. Before, green meant both "press this" and "good"; now those are separate.
+- **One filled brass element at a time**: the primary button. The selected mode in "Who plays the hero?" is a brass outline, not a fill, so it does not compete with it.
+- **The seal** is a blood-red wax seal. The favicon and browser theme colour follow.
+- **The stage** keeps its focal role with an ember glow from the top, darker than the panels around it. Fighter cards are raised soot with a black outline.
+- **Portraits** are dimmed slightly (`--art-filter`) in cards, the checklist, the play-by-play and the map; defeated ones go grey and darker.
+- **Contrast**: every visible text element was checked against its background in the setup, circuit smash, after-guard and Rulebook states (one-off audit, not a tool in the repo): all at least 4.5:1, or 3:1 for large text. The tab numbers and the "Next move" label lost their opacity to get there.
+- `color-scheme: dark` makes scrollbars, the model select and the progress bar dark too.
+- Full-page screenshots from `tools/shots.mjs` show a faint horizontal band about half-way down the page. It is the fixed page background in a capture taller than the window; in a real window the glow fades smoothly (checked by sampling a window-sized capture).
 
 ## Turn playback (added 2026-11-14, provisional until playtested)
 
@@ -64,12 +114,25 @@ User request: make each decision and its consequences easy to follow, with sound
 - **The engine resolves a turn at once; the stage replays it.** `applyAction` now logs `events` per turn (actor hero/foe/world, kind, text, and the numbers at that moment). `detail` is still the joined sentence; one wording change: a defeat now reads "X defeated." before "Earned a training stamp". The prompt is unchanged (it never included the log).
 - **Beats** (`turnBeats`, `displayAt`, `turnFeedHtml` in `src/view.js`): the choice, then each event in engine order. The stage shows the old situation with each beat's numbers until something changes the scene (new stop, defeat, retreat, end), then the new one. Turn counter advances on the choice.
 - **What shows a beat:** the hero's speech bubble with the action ("Guard!"); a yellow glow on whoever acts; the opponent's move box switches to "Now" and flashes when it acts; floating numbers (HP, counter, coins); a play-by-play under the fighters with small portraits per line and the passed-over options struck through; the options panel stamps "Chosen" and strikes the rest; the turn card under the controls fills in line by line.
-- **Durations at normal pace** (`BEAT_MS`): options stay up at least 1.4 s before a model's choice is revealed; the choice holds 1.1 s (0.6 s for the player's own or a forced move); an event 0.75 s + 45 ms per word; defeat, stamp, champion, win and loss 1.3 s. **Pace** cycles Normal → Fast (×0.5) → Slow (×1.6), stored per browser. A fight turn takes about 3.5–5 s at normal pace. **Skip** ends a turn's playback.
-- **The model reads ahead.** During a run, the next decision is requested as soon as a turn resolves. It is used only for the same trial (epoch) and state (revision); Pause, Restart, mode or model change drop it. Requests queue (the worker takes one at a time). Pause lets the turn on screen finish. "One decision" never reads ahead. Each decision records `preparedAhead` and `waitedMs` (visible wait beyond the 1.4 s minimum).
+- **Durations at normal pace** (`BEAT_MS`): options stay up at least 1.4 s before a model's choice is revealed; the choice holds 1.1 s (0.6 s for the player's own or a forced move); an event 0.75 s + 45 ms per word; defeat, stamp, champion, win and loss 1.3 s. **Pace** cycles Turn by turn → Normal → Fast (×0.5), stored per browser (`pmlq.runPace`). Slow (×1.6) was dropped on 2026-11-14 when Turn by turn joined (see below). A fight turn takes about 3.5–5 s at normal pace. **Skip** ends a turn's playback.
+- **The model reads ahead** (since 2026-11-14 evening, up to 3 decisions; see the next section). Each decision records `preparedAhead` and `waitedMs` (visible wait beyond the 1.4 s minimum, pauses left out).
 - **Measured with the real model** (Qwen 2.5 3B, RTX 4090, careful orders, normal pace): 24 of 26 circuit decisions were ready before their options went up; the hero visibly waited 0 ms in total; the circuit took 122 s on screen (the old flow took roughly 26 × (0.7 s model + 0.7 s pause) plus forced moves, about 40 s). Slower GPUs are unmeasured; `waitedMs` in the exported report shows it.
 - **Manual sandbox** plays turns back too, with a shorter choice beat; no new action can be clicked until the turn finishes or is skipped.
 - **Sound** (`src/sound.js`): synthesized WebAudio, no files, on by default with a ♪ toggle stored per browser. A rubber-stamp thunk for every decision (the guild runs on paperwork), whoosh-and-thwack strikes, a wooden knock for raising a guard, a muted clang when a hit lands on the guard, a low thud when the hero is hurt, a soft huff when the opponent idles, low "heartbeat" pulses when a SMASH is announced, chimes for healing, coins, stamps, win and loss. Kept low and short; no loops. Offline levels: −25 to −37 dB RMS for most cues, footsteps and the idle huff quieter, peaks ≤ 0.42.
 - **Height:** the play-by-play and the situation text share one grid cell, so the stage is as tall as the taller of the two. This leaves some blank stage under the situation text after a busy turn, but the Run/Pause button does not jump between turns.
+
+## Pause, stop after each turn, less repetition (2026-11-14, provisional until playtested)
+
+User report: the information during play was confusing; Pause seemed not to pause; wanted a mode that stops after each hero action for review, with the model still working ahead. The previous flow is commit `5be3f6d`.
+
+- **Pause freezes at once.** Before, Pause dropped the model's prepared reply but let the turn on screen play to its end (3–5 s, with sound), and greyed out Continue meanwhile; the status line even said "Game time is paused" during normal running. Now the beat clock stops (`gameTime` in `src/app.js`), the thinking phase holds, and a reply that arrives is held until Continue. Continue resumes from the same moment. A "Paused" tag sits on the stage's top edge; looping animations (smash pulse, thinking dots, weighing options, low-health flag) hold, but entrances finish so the frozen beat stays legible. Orders, assignment tabs and model settings unlock while paused; edited orders restart the trial on Continue.
+- **Pause keeps prepared decisions.** They answer the exact states the run continues from, so nothing stale can act. Restart, a level, mode or model change, and a model error still drop them all.
+- **Pace: Turn by turn** (the default, user request) replaced "One decision". A run plays one turn at normal speed, then stops with that turn's full play-by-play still on the stage and its options still stamped; the button reads "Next turn". It stops after forced moves too (they are rare: the start, and walking at full health). The status line says whether the next move is ready. It began as a separate "Stop after each turn" checkbox; the user asked for it as a pace instead ("Pause / Normal / Fast"). It is called "Turn by turn", not "Pause", because the Pause button already means "freeze now". The pace has a new storage key, so earlier saved paces (and the checkbox) do not carry over.
+- **Options not taken** show as red, crossed-out pills with a ✕ in the play-by-play ("Guard instead of ✕ Drink potion ✕ Quick strike"), user request; before they were small grey struck-through words. The options panel strikes their titles in rust.
+- **Read-ahead depth 3.** After each turn the model prepares up to three decisions ahead, each in the state the previous prepared decision leads to (a prepared decision is always the one used, so these are the states the hero will reach). Forced moves are stepped over. Prepared decisions are keyed by trial, state revision and the exact prompt. `QuestDemo.setReadAhead(n)` changes the depth for tests. Measured on the RTX 4090 circuit run: all 26 decisions ready before their options appeared (24 of 26 with the old one-ahead read), same choices as before.
+- **One place per kind of information.** The turn card under the controls is gone: it repeated the stage's play-by-play while a turn played and the report after. The stage shows the turn being played (or kept at a stop); otherwise the situation for the next decision. The status line now says what the run is doing (running, paused, thinking, stopped) instead of "Decision made in 0.4 seconds". The counter reads "Turns used", and the options are numbered as the turn being decided ("Turn 7 · The hero weighs 5 options…"), so "Turn 6" no longer means two things at once.
+- **Fixed on the way:** when the opponent acted on a turn's last beat, its box said "Now" over the *next* announced move (e.g. "Now: Smash, Charge" while the line said "Gore hit for 4"), because the last beat shows the state after the turn. Pause made this easy to see. Also, after a model error, a retry returned the same failed reply instead of asking again.
+- In the Manual sandbox and in continuous runs, the previous turn is visible only while it plays and in the report. If that proves too little, the stop-each-turn mode is the intended answer, not a second copy of the turn.
 
 ## Browser setup guide (added 2026-11-14)
 
@@ -86,16 +149,17 @@ Style preamble, used at the start of every request (full requests in `assets-src
 - 13 portraits in use: hero, 5 opponents, 7 places. Originals (1254 px) are in `assets-src/raw/`; `python3 tools/art.py` cuts them to 384 px WebP in `assets/art/`.
 - **The hero is now a rugged anti-hero** (user request, 2026-11-14): a scarred sellsword who joined for the pay and follows orders to the letter, with commentary. Portrait `hero-e` (chewing grass, holding the orders at arm's length) is a provisional pick; `hero-c` (sword on shoulder) and `hero-d` (arms crossed) are alternatives. The original hapless applicant is `hero-a`. Copy follows the character: card kicker "Your sellsword", "would like to discuss the fee", "did exactly what the orders said, and would like that noted". The model's system prompt is unchanged.
 - `PICKS` in `tools/art.py` selects `hero-e` and `champion-a`.
-- The art's paper colour is about `#f4e6cc` (`--art` in `style.css`). Portrait frames and map discs use it so the square edges do not show.
+- The art's paper colour is about `#f4e6cc`. On screen every portrait is dimmed by `--art-filter` (candlelight, so cream does not glare against the dark page), which turns that paper into about `#ddcca9`: that is `--art` in `style.css`. Portrait frames and map discs use it so the square edges do not show. Change the two together; sample a portrait corner in a screenshot to get the new `--art`.
 - No images are queued. A missing portrait falls back to a letter placeholder.
 
 ## Tools
 
-- `node tools/balance.mjs [engine.js] [--solve] [--json out.json]`: balance proxies for the full circuit. Order-style grid, approach matrix, robustness with random slips, usage counts, commendations, undominated fight lines; `--solve` adds an exhaustive search (slow). Runs against an old engine too: `git show balance-before:src/game.js > /tmp/old.js`.
+- `node tools/balance.mjs [engine.js] [--level warning|prize] [--solve] [--json out.json]`: balance proxies for the full circuit, or another assignment with `--level` (battles always use circuit opponents). Order-style grid, approach matrix, robustness with random slips, usage counts, commendations, undominated fight lines; `--solve` adds an exhaustive search (slow). Runs against an old engine too: `git show balance-before:src/game.js > /tmp/old.js`.
 - `npm run test:llm -- --circuit`: after the tutorial checks, the real model plays the full circuit with the careful example orders; the per-decision record goes to `artifacts/llm-circuit-trial.json`. Evidence, not a gate.
+- `npm run test:llm -- --levels`: the real model plays Fair warning and Prize money, each with its careful orders and its first draft; records go to `artifacts/llm-<level>-<careful|reckless>-trial.json`. Evidence, not a gate. `--levels=prize` plays one assignment; `QUEST_ORDERS='orders A || orders B'` plays those orders instead of the examples, to compare wordings in whole trials.
 - `node tools/probe.mjs`: the real model answers 13 fixed circuit situations (built by the engine, prompted by the real protocol and worker) without playing a trial. About a minute with the model cached. `PROBE_ORDERS='orders A || orders B'` compares variants. Use it before changing prompt wording or example orders.
 
-- `node tools/shots.mjs [dir]`: screenshots of setup, tutorial fight, win and loss, and circuit start, smash, mid-turn playback (held on the blocked charge), counter, armorer, champion, win, low health and death at 1440, 1180 and 390 px, using the Manual sandbox. Also lists rendered text under 12 px and any horizontal overflow. It selects mode buttons as `button[data-mode=…]`: `<body>` carries `data-mode` too.
+- `node tools/shots.mjs [dir]`: screenshots of setup, tutorial fight, win and loss, Fair warning start, boar and win, Prize money start and win, and circuit start, smash, mid-turn playback (held on the blocked charge), counter, armorer, champion, win, low health and death at 1440, 1180 and 390 px, using the Manual sandbox. Also lists rendered text under 12 px and any horizontal overflow. It selects mode buttons as `button[data-mode=…]`: `<body>` carries `data-mode` too.
 - `QuestDemo.setPace('instant')` turns playback off (tools use it for fast clicking); `QuestDemo.hold(n)` stops playback on beat n, `hold(null)` releases it; `QuestDemo.skip()`. The snapshot reports `phase`, `playing`, `beat`, `beatKinds`, `awaitingModel`, `modelBusy`. `QuestDemo.countTokens(text)` counts tokens with the loaded model's tokenizer.
 - `python3 tools/art.py`: rebuilds `assets/art/` from `assets-src/raw/`.
 - `npm run test:browser`: manual play through the real controls, then the LLM-mode controls against a stub worker the test injects (no inference). `npm run test:llm -- --full`: real inference; `QUEST_LOAD_MINUTES=60` allows a slow first download, and `QUEST_PROFILE=artifacts/llm-test-profile` keeps the downloaded model between test runs. Results are in `VERIFICATION.md`.
@@ -112,8 +176,15 @@ The engine is deterministic: no randomness, fixed course. Model output is not gu
 - Do you look at the words and tokens under the orders at all? Would you rather have the loaded model read the orders back in its own words before a run (not built)?
 - Does the anti-hero portrait and tone fit, and is "Your sellsword" the right label?
 
+- Four assignments: does each step feel like one new idea, or is Prize money (seven new stops) still too much at once? Is Fair warning too easy, given that heavy strikes win it without reading?
+- Did the first drafts in the middle assignments (the previous assignment's orders, failing) make the new rule obvious, or just feel unfair?
+- Fair warning gives 16 turns, and the model's careful run used 15. Does the clock feel fair there, or should it be 17–18 (the first draft would then win with this model)?
+- Dark palette: does it feel grim enough, or still too polite? Too close to Loop Hero? Is anything hard to read, especially the red damage numbers and the muted grey text? Do the dimmed portraits look aged, or just dull?
 - What did you look at first on the setup screen?
 - Could you finish the first assignment without opening the Rulebook?
+- Pause: does it now feel like a real pause? Is the "Paused" tag on the stage noticeable without being loud?
+- Turn by turn: does the default suit a first run, or does it feel slow to start (the first click only walks to the rat)? Should it skip stopping after forced moves (start, walking)? Do you read "The next move is ready", or is it noise? Do you miss Slow?
+- With the turn card under the controls gone, do you miss seeing the last turn while the hero weighs the next one in a continuous run?
 - Turn playback: can you tell, without reading the report, what the hero chose, what the opponent did, and whether the guard paid off? Which cue told you most: the speech bubble, the struck-through options, the play-by-play, or the sounds?
 - Is normal pace readable without feeling slow? Which pace did you settle on, and did you use Skip?
 - Do any sounds grate after a full circuit (the stamp thunk plays every decision)? Is the SMASH warning noticeable?

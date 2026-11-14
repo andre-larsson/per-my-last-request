@@ -12,6 +12,12 @@ const softwareGpu = process.argv.includes('--software-gpu');
 const fullTrial = process.argv.includes('--full');
 // --circuit: after the tutorial checks, the model plays the full circuit with the example orders. Evidence, not a pass/fail gate.
 const circuitTrial = process.argv.includes('--circuit');
+// --levels: the model plays the two middle assignments, each with its careful orders and its first draft. Evidence, not a gate.
+// --levels=prize plays only the named ones.
+const levelsArg = process.argv.find(arg => arg === '--levels' || arg.startsWith('--levels='));
+// QUEST_ORDERS='orders A || orders B' plays those orders instead of the two example orders, to compare wordings.
+const customOrders = process.env.QUEST_ORDERS ? process.env.QUEST_ORDERS.split('||').map(text => text.trim()).filter(Boolean) : null;
+const levelTrials = levelsArg ? (levelsArg.includes('=') ? levelsArg.split('=')[1].split(',') : ['warning', 'prize']) : [];
 const customModel = process.env.QUEST_MODEL;
 if (customModel && !findModel(customModel)) throw new Error(`Unknown test model: ${customModel}`);
 const artifacts = join(ROOT, 'artifacts', customModel ? customModel.replace(/[^a-z0-9-]/gi, '-') : '');
@@ -59,41 +65,58 @@ async function stubbedLlmFlow(page, url) {
   await page.waitFor(sizeShows(await page.eval('document.querySelector("#orders").value.trim()')));
   assert.match(await page.eval('document.querySelector("#orders-size").title'), /counted by Qwen 2\.5 · 0\.5B/);
   await page.screenshot(join(artifacts, 'flow-ready.png'));
-  // The forced departure is automatic. The next turn is a real choice, answered slowly so the waiting state can be seen.
-  await page.click('#step');
+  // The default pace, "Turn by turn", makes Run play a single turn. Reading ahead is off while these checks look at slow replies.
+  assert.deepEqual([await snap('pace'), await snap('stopEachTurn')], ['step', true], 'Turn by turn is the default pace');
+  assert.match(await page.eval('document.querySelector("#pace").textContent'), /Pace: Turn by turn/);
+  await page.eval('QuestDemo.setReadAhead(0)');
+  // The forced departure is automatic.
+  await page.click('#run');
+  await page.waitFor('!QuestDemo.snapshot().running');
   assert.equal(await snap('game.log[0].source'), 'auto');
+  assert.match(await page.eval('document.querySelector("#run").textContent'), /Next turn/, 'At a stop, Run offers the next turn');
+  // The next turn is a real choice, answered slowly so the waiting state can be seen.
   await stub({ delay: 700, replies: ['retreat'] });
-  await page.click('#step');
+  await page.click('#run');
   await page.waitFor('QuestDemo.snapshot().thinking');
   assert.equal(await page.eval('document.querySelector("#hero-card").classList.contains("thinking") && document.querySelector("#orders").disabled'), true, 'Thinking is visible and locks the orders');
-  assert.match(await page.eval('document.querySelector("#run-status").textContent'), /Game time is paused/);
+  assert.match(await page.eval('document.querySelector("#run-status").textContent'), /^Turn 2: .*Thinking costs no turns/);
+  assert.match(await page.eval('document.querySelector("#options-title").textContent'), /^Turn 2 · The hero weighs/, 'The options are numbered as the turn being decided');
   assert.equal(await snap('game.turn'), 1, 'Thinking spends no turn');
   await page.eval('scrollTo(0,0)');
   await page.screenshot(join(artifacts, 'flow-thinking.png'));
-  await page.waitFor('!QuestDemo.snapshot().thinking');
+  await page.waitFor('!QuestDemo.snapshot().running');
   assert.deepEqual([await snap('game.turn'), await snap('game.log[1].source'), await snap('game.log[1].action')], [2, 'llm', 'retreat']);
   assert.equal(await page.eval('window.__stub.seen.at(-1) === QuestDemo.snapshot().orders'), true, 'The worker receives the orders in force');
   // A reply that arrives after a restart must not act on the new trial.
   await stub({ replies: ['potion'] });
-  await page.click('#step');
+  await page.click('#run');
   await page.waitFor('QuestDemo.snapshot().thinking');
   await page.click('#reset');
   await sleep(1000);
   assert.deepEqual([await snap('game.turn'), await snap('game.log.length'), await snap('thinking')], [0, 0, false], 'A stale reply is discarded after Restart');
-  // Unusable output is a model failure: reported, retried once, and free of charge.
+  // Unusable output is a model failure: reported, retried once, and free of charge. Retrying asks the model again.
   await stub({ delay: 30 });
-  await page.click('#step');
+  await page.click('#run');
+  await page.waitFor('!QuestDemo.snapshot().running');
   await stub({ replies: ['garbage', 'garbage'] });
-  await page.click('#step');
+  await page.click('#run');
   await page.waitFor('!QuestDemo.snapshot().thinking && /No turn was spent/.test(QuestDemo.snapshot().status)');
   assert.equal(await snap('game.turn'), 1, 'A parsing failure spends no turn');
   assert.equal(await page.eval('document.querySelector("#run-status").classList.contains("error")'), true);
+  await page.click('#run');
+  await page.waitFor('!QuestDemo.snapshot().running');
+  assert.deepEqual([await snap('game.turn'), await snap('game.log[1].source')], [2, 'llm'], 'A retry after a failure gets a fresh answer');
   // Orders edited mid-trial: the page says so, and the next run starts a fresh trial with the new text.
   const revised = 'Fight the practice rat with quick strikes, then return to camp and submit.';
   await page.eval(`document.querySelector('#orders').value=${JSON.stringify(revised)};document.querySelector('#orders').dispatchEvent(new Event('input',{bubbles:true}));`);
   assert.equal(await page.eval('document.querySelector("#orders-notice").hidden'), false, 'Edited orders are flagged before they apply');
+  assert.match(await page.eval('document.querySelector("#run").textContent'), /Restart with new orders/, 'Run says that edited orders restart the trial');
   assert.match(await page.eval('document.querySelector("#orders-size").textContent'), /about/, 'Until the model has counted the new text, the tokens are an estimate');
   await page.waitFor(sizeShows(revised));
+  // From here on the model reads ahead, and runs do not stop after each turn. The Pace button cycles to Normal.
+  await page.eval('QuestDemo.setReadAhead(3)');
+  await choosePace(page, 'normal');
+  assert.equal(await snap('instant'), true, 'Choosing a pace leaves the test\'s instant playback alone');
   await page.eval('window.__stub.seen.length = 0');
   await page.click('#run');
   await page.waitFor('QuestDemo.snapshot().game.status === "won"', 20000);
@@ -106,18 +129,7 @@ async function stubbedLlmFlow(page, url) {
   assert.match(await page.eval('document.querySelector("#run").textContent'), /Run again/);
   assert.equal(await page.eval('document.querySelector("#next-level").hidden'), false);
   await page.screenshot(join(artifacts, 'flow-won.png'));
-  // Run again restarts at once; Pause stops the run and drops the reply in flight.
-  await stub({ delay: 600 });
-  await page.click('#run');
-  await page.waitFor('QuestDemo.snapshot().thinking');
-  const pausedAt = await snap('game.turn');
-  await page.click('#run');
-  assert.equal(await snap('running'), false);
-  await sleep(900);
-  assert.equal(await snap('game.turn'), pausedAt, 'The reply in flight at Pause is discarded');
-  assert.match(await snap('status'), /Paused/);
-  // Turn playback with the model: the next decision is asked for while the current turn plays,
-  // so after the first decision the hero does not visibly wait for the model.
+  // Turn playback with the model: it reads ahead while turns play, so after the first decision the hero does not visibly wait.
   await page.click('#reset');
   await page.eval(`QuestDemo.setPace('fast')`);
   await stub({ delay: 250, replies: [] });
@@ -142,20 +154,65 @@ async function stubbedLlmFlow(page, url) {
   const seen = Object.entries(prepared);
   assert.ok(seen.length >= 4, `Saw ${seen.length} decisions`);
   assert.deepEqual(seen.filter(([, ahead]) => !ahead), [], 'Every decision was prepared during the previous turn');
-  // Pause during playback: the turn on screen finishes, nothing further is committed, and the prepared reply is dropped.
+  // Pause freezes the turn on screen at once. The model keeps reading ahead, and Continue uses what it prepared.
+  await page.eval(`QuestDemo.setPace('normal'); window.__stub.turns.length = 0`);
+  await page.click('#run');
+  await page.waitFor('QuestDemo.snapshot().game.turn === 2 && QuestDemo.snapshot().playing && QuestDemo.snapshot().beat === 1');
+  await page.click('#run');
+  const frozen = await page.eval('QuestDemo.snapshot()');
+  assert.deepEqual([frozen.running, frozen.paused, frozen.playing], [true, true, true], 'Pause keeps the run and the turn on screen');
+  await sleep(2500); // Longer than any beat.
+  assert.deepEqual([await snap('beat'), await snap('game.turn'), await snap('playing')], [frozen.beat, 2, true], 'The beat on screen holds while paused');
+  assert.equal(await page.eval('document.querySelector("#paused-badge").hidden'), false, 'The stage says it is paused');
+  assert.match(await page.eval('document.querySelector("#run-status").textContent'), /^Paused during turn 2\./);
+  assert.match(await page.eval('document.querySelector("#run").textContent'), /Continue/);
+  assert.equal(await page.eval('document.querySelector("#run").disabled || document.querySelector("#orders").disabled'), false, 'Continue and the orders are available at once');
+  await page.waitFor('QuestDemo.snapshot().prepared >= 1');
+  await page.eval('scrollTo(0,0)');
+  await page.screenshot(join(artifacts, 'flow-paused.png'));
+  await page.click('#run');
+  assert.equal(await snap('paused'), false);
+  await page.waitFor('QuestDemo.snapshot().game.turn === 3', 15000);
+  assert.equal(await snap('lastDecision.preparedAhead'), true, 'The decision prepared during the pause is used');
+  assert.equal(await page.eval('window.__stub.turns.filter(turn => turn === 2).length'), 1, 'Turn 3 was asked for once, before Continue');
+  // Pause while the hero waits for a slow reply: the reply arrives during the pause and waits for Continue.
+  await page.click('#reset');
+  await page.eval(`QuestDemo.setPace('instant'); QuestDemo.setReadAhead(0); window.__stub.turns.length = 0`);
+  await stub({ delay: 600 });
+  await page.click('#run');
+  await page.waitFor('QuestDemo.snapshot().thinking');
+  await page.click('#run');
+  assert.match(await page.eval('document.querySelector("#run-status").textContent'), /^Paused while the hero weighs turn 2\./);
+  await sleep(900);
+  assert.deepEqual([await snap('game.turn'), await snap('thinking'), await snap('prepared')], [1, true, 1], 'The reply arrived and is held');
+  await page.click('#run');
+  await page.waitFor('QuestDemo.snapshot().game.turn === 2', 2000);
+  assert.equal(await page.eval('window.__stub.turns.filter(turn => turn === 1).length'), 1, 'Continue uses the held reply');
+  // Turn by turn: each Run plays one turn at normal speed and keeps it on the stage, while the model reads ahead.
+  await page.click('#run'); // Pause the continuous run started above.
+  await page.click('#reset');
+  await page.eval(`QuestDemo.setPace('step'); QuestDemo.setReadAhead(3)`);
   await stub({ delay: 250 });
   await page.click('#run');
-  await page.waitFor('QuestDemo.snapshot().game.turn === 2 && QuestDemo.snapshot().playing');
+  await page.waitFor('!QuestDemo.snapshot().running');
   await page.click('#run');
-  assert.deepEqual([await snap('running'), await snap('playing')], [false, true], 'Pause lets the turn on screen finish');
-  await page.waitFor('!QuestDemo.snapshot().playing');
-  await sleep(500);
-  assert.equal(await snap('game.turn'), 2, 'A decision prepared before Pause is not used');
-  // Continue asks again, from the same state; Skip ends a turn's playback at once.
-  const asked = await page.eval('window.__stub.turns.length');
+  await page.waitFor('!QuestDemo.snapshot().running');
+  const stop = await page.eval('QuestDemo.snapshot()');
+  assert.deepEqual([stop.game.turn, stop.reviewing, stop.playing], [2, 2, false], 'The run stops after one turn and keeps it for review');
+  assert.equal(await page.eval('document.querySelector("#stage-foot").classList.contains("reviewing") && document.querySelector("#skip").hidden'), true);
+  assert.match(await page.eval('document.querySelector("#turn-feed").textContent'), /Turn 2 · The hero chose/, 'The play-by-play of that turn stays up');
+  assert.equal(await page.eval('Boolean(document.querySelector("#options .option.chosen"))'), true);
+  assert.match(await page.eval('document.querySelector("#run").textContent'), /Next turn/);
+  await page.waitFor('/^Stopped after turn 2\\. The next move is ready\\./.test(document.querySelector("#run-status").textContent)');
+  await page.eval('scrollTo(0,0)');
+  await page.screenshot(join(artifacts, 'flow-review.png'));
   await page.click('#run');
-  await page.waitFor('QuestDemo.snapshot().game.turn === 3 && QuestDemo.snapshot().playing');
-  assert.equal(await page.eval(`window.__stub.turns[${asked}]`), 2, 'Continue asks the model about the state on screen');
+  await page.waitFor('QuestDemo.snapshot().game.turn === 3 && !QuestDemo.snapshot().running');
+  assert.deepEqual([await snap('lastDecision.preparedAhead'), await snap('lastDecision.waitedMs')], [true, 0], 'The next turn was ready');
+  await page.eval(`QuestDemo.setPace('fast')`);
+  // Skip ends a turn's playback at once.
+  await page.click('#run');
+  await page.waitFor('QuestDemo.snapshot().playing');
   await page.click('#skip');
   await sleep(50);
   assert.equal(await snap('playing'), false, 'Skip ends the playback');
@@ -165,6 +222,11 @@ async function stubbedLlmFlow(page, url) {
   assert.equal(await page.eval('document.documentElement.scrollWidth > innerWidth'), false, 'LLM controls fit at 390px');
   await page.screenshot(join(artifacts, 'flow-phone.png'));
   await page.viewport(1440, 1100);
+}
+/** Chooses a pace with the real Pace button, which cycles Turn by turn → Normal → Fast. */
+async function choosePace(page, name) {
+  for (let i = 0; i < 3 && await page.eval('QuestDemo.snapshot().pace') !== name; i++) await page.click('#pace');
+  assert.equal(await page.eval('QuestDemo.snapshot().pace'), name);
 }
 // Browser storage is kept per address, so a kept profile needs the same port on every run.
 const server = await serve(process.env.QUEST_PROFILE ? Number(process.env.QUEST_PORT || 4174) : 0);
@@ -247,7 +309,7 @@ try {
     assert.equal(await page.eval('QuestDemo.snapshot().game.hp'),37);
     assert.equal(await page.eval('document.querySelector("#hp-value").textContent'),'37');
     assert.equal(await page.eval('document.querySelector("#hp-flag").hidden'),true,'37 HP is not flagged LOW');
-    assert.match(await page.eval('document.querySelector("#last-move").textContent'),/Drink potion/);
+    assert.match(await page.eval('document.querySelector("#journal .log-entry").textContent'),/Drink potion/);
     assert.equal(await page.eval('document.querySelectorAll("#journal .log-entry").length'),3);
     await page.click('#reset');
     assert.equal(await page.eval('QuestDemo.snapshot().game.turn'),0);
@@ -274,7 +336,16 @@ try {
     assert.equal(await page.eval('document.querySelector("#foe-hp-value").textContent'),'18','The counter has not landed yet');
     await page.waitFor('!QuestDemo.snapshot().playing');
     assert.equal(await page.eval('document.querySelector("#foe-hp-value").textContent'),'8');
-    assert.match(await page.eval('document.querySelector("#last-move").textContent'),/Countered for 10/);
+    assert.match(await page.eval('document.querySelector("#journal .log-entry").textContent'),/Countered for 10/);
+    // When the opponent acts on a turn's last beat, its box names the move it is making, not the one announced next.
+    await page.eval('QuestDemo.hold(2)');
+    await page.click('[data-action="quick"]');
+    await page.waitFor('QuestDemo.snapshot().beat === 2');
+    assert.deepEqual(await page.eval('QuestDemo.snapshot().beatKinds'),['choice','strike','foe-hit']);
+    assert.match(await page.eval('document.querySelector("#foe-intent").textContent'),/^Now.*Gore/);
+    await page.eval('QuestDemo.hold(null)');
+    await page.waitFor('!QuestDemo.snapshot().playing');
+    assert.match(await page.eval('document.querySelector("#foe-intent").textContent'),/^Next move.*Charge/);
     await page.eval(`QuestDemo.setPace('instant')`);
     // Without a model the orders show their size with estimated tokens. Long orders are never blocked.
     const typed = await page.eval('document.querySelector("#orders").value');
@@ -307,6 +378,7 @@ try {
     assert.equal(await page.eval('document.querySelectorAll("#objective .goal.done").length'),5,'All five checklist steps are ticked');
     assert.match(await page.eval('document.querySelector("#verdict").textContent'),/Commendations \d of 4/,'The verdict lists commendations');
     assert.match(await page.eval('document.querySelector("#sword-value").textContent'),/buckler/i);
+    assert.equal(await page.eval('document.querySelector("#next-level").hidden'),true,'The full circuit is the last assignment');
     await page.screenshot(join(artifacts,'victory.png'));
     await page.viewport(390,844,true);
     assert.equal(await page.eval('document.documentElement.scrollWidth > innerWidth'),false);
@@ -315,12 +387,30 @@ try {
     await page.click('[data-level="tutorial"]');
     for(const id of ['depart','quick','quick','advance','advance','finish'])await page.click(`[data-action="${id}"]`);
     assert.equal(await page.eval('QuestDemo.snapshot().game.status'),'won');
+    // Next assignment walks through the two middle assignments to the full circuit. Each is won through the real controls.
+    const middle = {
+      warning: { stops: 5, goals: 4, win: ['depart','quick','quick','advance','guard','quick','guard','advance','quick','quick','quick','advance','advance','finish'] },
+      prize: { stops: 9, goals: 3, win: ['depart','advance','quick','guard','quick','advance','medic','advance','quick','quick','quick','advance','buy_sword','advance','advance','quick','quick','guard','potion','quick','advance','advance','finish'] },
+    };
+    for (const [name, { stops, goals, win }] of Object.entries(middle)) {
+      await page.click('#next-level');
+      assert.equal(await page.eval('QuestDemo.snapshot().game.level'),name);
+      assert.equal(await page.eval(`document.querySelector('[data-level="${name}"]').getAttribute('aria-pressed')`),'true');
+      assert.equal(await page.eval('document.querySelectorAll("#map .node").length'),stops,`${name} draws only its own stops`);
+      assert.equal(await page.eval('document.querySelectorAll("#objective .goal").length'),goals);
+      for (const id of win) await page.click(`[data-action="${id}"]`);
+      assert.equal(await page.eval('QuestDemo.snapshot().game.status'),'won',`${name} is won through the controls`);
+      assert.equal(await page.eval('document.querySelector("#next-level").hidden'),false);
+    }
     await page.click('#next-level');
     assert.equal(await page.eval('QuestDemo.snapshot().game.level'),'circuit');
+    await page.viewport(390,844,true);
+    assert.equal(await page.eval('[...document.querySelectorAll(".tabs button")].every(tab => tab.getBoundingClientRect().right <= innerWidth)'),true,'All four assignment tabs fit on a phone');
+    await page.viewport(1440,1100);
     await stubbedLlmFlow(page, `http://127.0.0.1:${server.address().port}/`);
     await writeFile(join(artifacts,'browser-report.json'),JSON.stringify({kind:'manual UI verification plus LLM-mode interface flow with a stub worker; no model inference',result,errors:page.errors},null,2));
     console.log(`Browser UI passed: desktop, 390px, 360px, potion costs, restart, complete victory in ${result.game.turn} turns.`);
-    console.log('LLM-mode interface flow passed with a stub worker (no inference): load, thinking, stale reply, parse failure, edited orders, pause, turn playback with prepared decisions, skip.');
+    console.log('LLM-mode interface flow passed with a stub worker (no inference): load, thinking, stale reply, parse failure and retry, edited orders, turn playback with prepared decisions, pause during playback and during thinking, turn-by-turn pace, skip.');
   } else {
     // The test profile can be persistent (QUEST_PROFILE), so orders saved by an earlier run must not leak into this one.
     const tutorialOrders = 'Fight the practice rat using quick strikes. After earning its training stamp, return to camp and submit the assignment.';
@@ -356,15 +446,16 @@ try {
     assert.equal(await page.eval('QuestDemo.snapshot().modelReady'),true,'Rechecking must not unload a ready model');
     assert.equal(await page.eval('document.querySelector("#model").value'),loadedSelection);
     assert.equal(await page.eval('document.querySelector("#orders").value'),tutorialOrders,'Loading and checking the model must not change the orders');
-    // A forced departure is automatic; inference is reserved for real decisions.
-    await page.click('#step');
-    await page.waitFor('!QuestDemo.snapshot().thinking',190000);
+    // One turn per Run. A forced departure is automatic; inference is reserved for real decisions.
+    await choosePace(page, 'step');
+    await page.click('#run');
+    await page.waitFor('!QuestDemo.snapshot().running',190000);
     const first=await page.eval('QuestDemo.snapshot()');
     assert.equal(first.game.turn,1,first.status);
     assert.equal(first.game.log[0].source,'auto');
     // Then let the model make a real combat choice from multiple options.
-    await page.click('#step');
-    await page.waitFor('!QuestDemo.snapshot().thinking',190000);
+    await page.click('#run');
+    await page.waitFor('!QuestDemo.snapshot().running',190000);
     const combat=await page.eval('QuestDemo.snapshot()');
     assert.equal(combat.game.turn,2,combat.status);
     assert.equal(combat.lastDecision.ordersReceived,combat.orders);
@@ -374,13 +465,15 @@ try {
     console.log('Real LLM combat action:',JSON.stringify(combat.lastDecision));
     await page.eval(`document.querySelector('#orders').value='Always retreat from every enemy. Leave every fight immediately. Never attack.';document.querySelector('#orders').dispatchEvent(new Event('input',{bubbles:true}));`);
     await page.click('#reset');
-    await page.click('#step');
-    await page.click('#step');
-    await page.waitFor('!QuestDemo.snapshot().thinking',190000);
+    await page.click('#run');
+    await page.waitFor('!QuestDemo.snapshot().running',190000);
+    await page.click('#run');
+    await page.waitFor('!QuestDemo.snapshot().running',190000);
     const reversed = await page.eval('QuestDemo.snapshot()');
     assert.equal(reversed.game.turn,2,reversed.status);
     assert.equal(reversed.lastDecision.ordersReceived,reversed.orders);
     console.log('Retreat-order response:',JSON.stringify(reversed.lastDecision));
+    await choosePace(page, 'normal');
     let fullResult;
     if(fullTrial) {
       await page.click('[data-preset="careful"]');
@@ -400,10 +493,19 @@ try {
       assert.ok(fullResult.game.log.some(entry=>entry.source==='llm'));
       assert.equal(fullResult.game.log.some(entry=>entry.source==='manual'),false);
     }
+    // Each requested trial: the model plays a whole assignment with one set of example orders. Evidence, not a gate.
+    const trials=[...levelTrials.flatMap(level=>customOrders?customOrders.map((text,i)=>[level,`custom${i+1}`,text]):[[level,'careful'],[level,'reckless']]),...(circuitTrial?[['circuit','careful']]:[])];
+    const played=[];
     let circuit;
-    if(circuitTrial) {
-      await page.click('[data-level="circuit"]');
-      await page.click('[data-preset="careful"]');
+    for(const [level,preset,text] of trials) {
+      const label=`${level} (${preset === 'careful' ? 'careful' : preset === 'reckless' ? 'first draft' : preset})`;
+      const file=level==='circuit'&&preset==='careful'?'llm-circuit-trial':`llm-${level}-${preset}-trial`;
+      await page.click(`[data-level="${level}"]`);
+      if(text){
+        await page.eval(`document.querySelector('#orders').value=${JSON.stringify(text)};document.querySelector('#orders').dispatchEvent(new Event('input',{bubbles:true}))`);
+        if(await page.eval('QuestDemo.snapshot().game.turn>0'))await page.click('#reset');
+      }
+      else await page.click(`[data-preset="${preset}"]`);
       await page.click('#run');
       const trialStart=Date.now();
       let lastTurn=-1;
@@ -413,13 +515,13 @@ try {
       while(Date.now()-trialStart<900000) {
         snapshot=await page.eval('QuestDemo.snapshot()');
         if(snapshot.game.log.at(-1)?.source==='llm'&&snapshot.lastDecision)timings[snapshot.game.turn]={modelMs:Math.round(snapshot.lastDecision.elapsed),preparedAhead:snapshot.lastDecision.preparedAhead,waitedMs:snapshot.lastDecision.waitedMs};
-        if(snapshot.lastDecision&&snapshot.game.level==='circuit')assert.equal(snapshot.lastDecision.ordersReceived,snapshot.orders,'Worker must receive the current player orders');
-        if(snapshot.game.turn!==lastTurn){const e=snapshot.game.log.at(-1);console.log(`Circuit LLM trial: turn ${snapshot.game.turn}, ${snapshot.game.hp} HP, ${snapshot.game.stamps.length} stamps, ${e?`${e.label} at ${e.at} (${e.source})`:'starting'}`);lastTurn=snapshot.game.turn;}
+        if(snapshot.lastDecision&&snapshot.game.level===level)assert.equal(snapshot.lastDecision.ordersReceived,snapshot.orders,'Worker must receive the current player orders');
+        if(snapshot.game.turn!==lastTurn){const e=snapshot.game.log.at(-1);console.log(`${label} LLM trial: turn ${snapshot.game.turn}, ${snapshot.game.hp} HP, ${snapshot.game.stamps.length} stamps, ${e?`${e.label} at ${e.at} (${e.source})`:'starting'}`);lastTurn=snapshot.game.turn;}
         if(!snapshot.running&&!snapshot.thinking)break;
         await sleep(500);
       }
       // Replay the log through the engine to recover what the hero was told before each model decision.
-      let replay=newGame('circuit');
+      let replay=newGame(level);
       const decisions=[];
       for(const entry of snapshot.game.log){
         const move=replay.enemy?nextMove(replay.enemy):null;
@@ -434,14 +536,16 @@ try {
         optionalRetreated:`${count(d=>d.at==='Prize bruiser',d=>d.action==='retreat')} of ${count(d=>d.at==='Prize bruiser')}`,
         llmDecisions:decisions.length, autoMoves:snapshot.game.log.filter(e=>e.source==='auto').length, manual:snapshot.game.log.filter(e=>e.source==='manual').length,
         playback:{pace:snapshot.pace,seconds:Math.round((Date.now()-trialStart)/1000),timed:Object.keys(timings).length,preparedAhead:Object.values(timings).filter(t=>t.preparedAhead).length,visibleWaitMs:Object.values(timings).reduce((sum,t)=>sum+(t.waitedMs||0),0),modelMs:Object.values(timings).reduce((sum,t)=>sum+t.modelMs,0)}};
-      circuit={summary,decisions,timings,orders:snapshot.orders,status:snapshot.status,model:loadedSelection};
-      await writeFile(join(artifacts,'llm-circuit-trial.json'),JSON.stringify({...circuit,snapshot},null,2));
-      await page.screenshot(join(artifacts,'llm-circuit-trial.png'));
-      console.log('Circuit LLM trial summary:',JSON.stringify(summary));
+      const record={level,preset,summary,decisions,timings,orders:snapshot.orders,status:snapshot.status,model:loadedSelection};
+      await writeFile(join(artifacts,`${file}.json`),JSON.stringify({...record,snapshot},null,2));
+      await page.screenshot(join(artifacts,`${file}.png`));
+      console.log(`${label} LLM trial summary:`,JSON.stringify(summary));
       for(const d of decisions)console.log(`  turn ${String(d.turn).padStart(2)} ${d.at.padEnd(15)} ${(d.move||'-').padEnd(7)} ${String(d.hp).padStart(2)} HP -> ${d.action}`);
       assert.equal(summary.manual,0,'No manual actions in a model-controlled trial');
+      played.push(record);
+      if(level==='circuit')circuit=record;
     }
-    await writeFile(join(artifacts,'llm-report.json'),JSON.stringify({kind:gpuTest?`real local WebLLM inference with ${softwareGpu?'software':'hardware'} WebGPU`:'real local Transformers.js inference with CPU WebAssembly',gpu,first,combat,reversed,fullResult,circuit,errors:page.errors,logs:page.logs},null,2));
+    await writeFile(join(artifacts,'llm-report.json'),JSON.stringify({kind:gpuTest?`real local WebLLM inference with ${softwareGpu?'software':'hardware'} WebGPU`:'real local Transformers.js inference with CPU WebAssembly',gpu,first,combat,reversed,fullResult,circuit,trials:played.map(({level,preset,summary})=>({level,preset,summary})),errors:page.errors,logs:page.logs},null,2));
     assert.equal(reversed.game.log[1].action,'retreat','Changed standing orders should change the combat choice');
     assert.notEqual(reversed.game.log[1].action,combat.game.log[1].action);
   }

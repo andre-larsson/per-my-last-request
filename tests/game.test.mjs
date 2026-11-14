@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { newGame, applyAction, availableActions, observation, nextMove, strikeDamage, commendations, MAX_TURNS, PRESETS, TUTORIAL_PRESETS } from '../src/game.js';
+import { newGame, applyAction, availableActions, observation, nextMove, strikeDamage, commendations, MAX_TURNS, PRESETS, TUTORIAL_PRESETS, WARNING_PRESETS, PRIZE_PRESETS, LEVELS, LEVEL_ORDER, nextLevel } from '../src/game.js';
 import { actionSchema, parseDecision, decisionMessages, normalizeDecisionOutput } from '../src/protocol.js';
 
 // Scripted stand-ins for example orders. Test code only; never used as a controller in the game.
@@ -38,8 +38,21 @@ function reckless(s) {
   for (const id of ['medic', 'buy_sword', 'buy_buckler', 'buy_potion', 'rest', 'finish', 'depart']) if (has(id)) return id;
   return 'advance';
 }
-function simulate(policy) {
-  let state = newGame('circuit');
+// Stand-ins for the middle assignments' example orders.
+// "Fight every opponent using quick strikes…" (the tutorial's orders, carried over)
+const quickOnly = s => s.enemy ? 'quick' : availableActions(s).some(a => a.id === 'finish') ? 'finish' : s.status === 'ready' ? 'depart' : 'advance';
+// "Quick strike every turn, except: guard against a SMASH." (Fair warning's orders, carried over to Prize money)
+const guardSmash = s => s.enemy ? (nextMove(s.enemy).kind === 'smash' ? 'guard' : 'quick') : quickOnly(s);
+// "Quick strike every turn, except: guard against a SMASH and drink a potion when health is LOW. Fight the prize bruiser,
+//  buy only the sharper sword, skip the bench, and submit at camp as soon as you can."
+function prizeCareful(s) {
+  const ids = availableActions(s).map(a => a.id);
+  if (ids.includes('potion') && s.hp <= 18) return 'potion';
+  if (ids.includes('buy_sword')) return 'buy_sword';
+  return guardSmash(s);
+}
+function simulate(policy, level = 'circuit') {
+  let state = newGame(level);
   while (availableActions(state).length) state = applyAction(state, policy(state), 'rules-test');
   return state;
 }
@@ -71,6 +84,56 @@ test('the introductory assignment completes with one stamp and a safe return', (
   assert.equal(s.champion,false);
   assert.deepEqual(s.stamps,['rat']);
   assert.match(s.log[2].detail,/stamp \(1\/1\)/);
+});
+test('the assignments come in order, each walking its own course through the circuit', () => {
+  assert.deepEqual(LEVEL_ORDER, ['tutorial', 'warning', 'prize', 'circuit']);
+  assert.deepEqual(LEVEL_ORDER.map(nextLevel), ['warning', 'prize', 'circuit', null]);
+  assert.deepEqual(LEVEL_ORDER.map(level => newGame(level).turnLimit), [12, 16, 30, MAX_TURNS]);
+  for (const level of LEVEL_ORDER) {
+    const visited = [];
+    let s = newGame(level);
+    do { s = applyAction({ ...s, enemy: null }, s.status === 'ready' ? 'depart' : 'advance'); visited.push(s.position); } while (s.position !== 0);
+    assert.deepEqual([0, ...visited], [...LEVELS[level].course, 0], level);
+    const sorted = [...LEVELS[level].course].sort((a, b) => a - b);
+    assert.deepEqual(LEVELS[level].course, sorted, `${level} keeps circuit order`);
+  }
+});
+test('each middle assignment loses its first draft to the one new thing, and wins with its careful orders', () => {
+  // Fair warning: the tutorial's orders ignore the boar's announced SMASH, and the hero falls to Quickfoot.
+  const charged = simulate(quickOnly, 'warning');
+  assert.deepEqual([charged.status, charged.hp, charged.position], ['lost', 0, 7]);
+  const warned = simulate(guardSmash, 'warning');
+  assert.equal(warned.status, 'won');
+  assert.deepEqual(warned.stamps, ['rat', 'boar', 'quickfoot']);
+  assert.equal(warned.bigHitsTaken, 0);
+  // Prize money: Fair warning's orders never drink a potion and fall to the champion with both unused.
+  const thirsty = simulate(guardSmash, 'prize');
+  assert.deepEqual([thirsty.status, thirsty.hp, thirsty.potions, thirsty.position], ['lost', 0, 2, 10]);
+  const paid = simulate(prizeCareful, 'prize');
+  assert.equal(paid.status, 'won');
+  assert.deepEqual([paid.prizeWon, paid.sword > 0, paid.champion, paid.stamps], [true, true, true, ['quickfoot']]);
+  assert.ok(paid.turn <= 24, `scripted, it leaves the model room for wasted turns (${paid.turn} of 30)`);
+  // Each first draft is the previous assignment's careful orders, carried over.
+  assert.equal(PRIZE_PRESETS.reckless, WARNING_PRESETS.careful);
+  assert.match(WARNING_PRESETS.reckless, /quick strikes/);
+  assert.deepEqual(LEVEL_ORDER.map(level => LEVELS[level].presets), [TUTORIAL_PRESETS, WARNING_PRESETS, PRIZE_PRESETS, PRESETS]);
+});
+test('the middle assignments announce moves and offer guard, and tell the hero what they require', () => {
+  const boar = play(newGame('warning'), 'depart', 'quick', 'quick', 'advance');
+  assert.equal(boar.enemy.name, 'Tin boar');
+  assert.ok(availableActions(boar).some(a => a.id === 'guard'));
+  const prompt = decisionMessages(WARNING_PRESETS.careful, observation(boar), availableActions(boar))[1].content;
+  assert.match(prompt, /Turn 4 of 16\./);
+  assert.match(prompt, /Training stamps collected: 1 of 3\. This assignment has no champion fight\./);
+  assert.match(prompt, /about to SMASH \(Charge, 12 damage\)/);
+  assert.match(observation(boar).objective, /^Earn the rat, boar, and Quickfoot stamps, return to camp/);
+  const prize = observation(newGame('prize'));
+  assert.match(prize.objective, /^Earn the Quickfoot stamp, defeat the champion, return to camp, and submit the assignment before 30 turns\.$/);
+  assert.deepEqual([prize.progress.targetStamps, prize.progress.requiresChampion], [1, true]);
+  const paid = simulate(prizeCareful, 'prize');
+  assert.ok(paid.log.some(entry => /Champion defeated\. Return to camp with the training stamp\./.test(entry.detail)));
+  assert.ok(paid.log.some(entry => /Earned a training stamp \(1\/1\)/.test(entry.detail)));
+  assert.deepEqual(commendations(paid), [], 'commendations belong to the full circuit');
 });
 test('retreating around the introductory loop cannot complete its assignment', () => {
   let s = newGame('tutorial');

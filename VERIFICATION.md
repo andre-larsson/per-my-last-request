@@ -2,6 +2,44 @@
 
 Original prototype checks on 2026-11-13, with model-selection checks added on 2026-11-14. This file distinguishes game-rule checks, browser UI checks, and genuine model inference.
 
+## Dark palette (2026-11-14)
+
+Colours, borders, corners and shadows only; details in `GAME_NOTES.md`.
+
+- `npm test` passed (54 tests). `npm run test:browser` passed (manual play and the stub-worker LLM-mode flow).
+- `node tools/shots.mjs`: no text under 12 px. Every state at 1440, 1180 and 390 px was reviewed by eye against a before set.
+- Contrast: a one-off audit of every visible text element (setup, circuit smash, after a guard, Rulebook open) found all at least 4.5:1, or 3:1 for large text, after two fixes (tab numbers and the "Next move" label had been faded with opacity).
+
+Not checked: the LLM-mode states with a loaded model (thinking, paused, stopped) by screenshot, other browsers, or a real phone.
+
+## Four assignments (2026-11-14)
+
+Two assignments now sit between the tutorial and the full circuit: Fair warning (the three stamp fights, with announced moves and guard, 16 turns) and Prize money (the circuit's second half, 30 turns). Details in `GAME_NOTES.md`.
+
+- **Tutorial and circuit unchanged:** every prompt, action list and resulting state of 16,367 tutorial and circuit states, played by 800 seeded random and mostly-sensible policies, hashes the same as at HEAD. `node tools/balance.mjs` still reports 301 of 540 circuit styles winning (56%).
+- `npm test` passed (54 tests). New tests: the assignment order and courses; for each middle assignment, the first draft loses to the new rule (scripted) and the careful orders win; the middle assignments' prompts announce moves, offer guard and state their own stamps; the checklist steps; every map layout places its own stops inside the drawing and apart; the rulebook's four assignments.
+- `npm run test:browser` passed (twice; a third run failed once in the device-check section, the intermittent click after a viewport change recorded below, with the failure snapshot showing that check). New: "Next assignment" goes tutorial → Fair warning → Prize money → full circuit; both middle assignments are won through the real controls, with only their own stops on the map; the full circuit offers no next assignment; all four tabs fit at 390 px.
+- `node tools/shots.mjs` (now with Fair warning start, boar and win, and Prize money start and win): no text under 12 px, no overflow. Fixed on the way: the four tabs overflowed the trial column at 390 px and at 1360–1440 px and around 900 px (they now sit two by two when the column is narrow), and on the phone the hero marker at camp covered "Prize purse".
+- **Real inference, hardware WebGPU (RTX 4090), Qwen 2.5 3B, normal pace** (`npm run test:llm -- --levels`, one greedy run each):
+  - Fair warning, careful orders: won on turn 15 of 16 with 33 HP, both charges guarded. First draft: lost, out of turns.
+  - Prize money at 30 turns, careful orders: won on turn 27 with 20 HP. First draft: lost, out of turns. At 24 and 28 turns the earlier careful wording lost on time; the limit and wording were changed from these runs (see `GAME_NOTES.md`).
+  - The tutorial combat and retreat-order checks passed in each of these runs. Every decision was ready before its options appeared, with 0 ms visible wait.
+- **Not re-run:** the model-controlled tutorial (`--full`) and full circuit (`--circuit`) after this change. The last attempt failed at model load with `GPUOutOfMemoryError`: another project's process held 18 GB of the GPU at the time. Their prompts are byte-identical (above) and decoding is greedy, so the recorded results should repeat; that is an inference, not a measurement.
+
+Not checked: the middle assignments with other models or hardware, by a person, or on a real phone.
+
+## Pause, stop after each turn, read-ahead (2026-11-14)
+
+Pause now freezes the trial at once; a "Turn by turn" pace (the default) replaced "One decision" and Slow; the model reads up to three decisions ahead; the duplicate turn card under the controls is gone; options not taken are red crossed-out pills. Details in `GAME_NOTES.md`.
+
+- `npm test` passed (50 tests). The turn-card tests were removed with the card; the play-by-play test now also checks the review form (every line shown, none animating as new).
+- `npm run test:browser` passed (three runs; one earlier run failed once in the unrelated device-check section, on a click straight after a viewport change, and passed on rerun). New with the stub worker (no inference): Turn by turn is the default pace, and the Pace button cycles to Normal; one turn per Run at that pace; the stopped turn stays on the stage with its options stamped; the status line reports the next move ready; Next turn uses the prepared decision with no visible wait. Pause during playback holds the beat for 2.5 s, shows the "Paused" tag, unlocks Continue and the orders at once, and Continue uses the decision prepared during the pause (asked for once). Pause while the hero waits for a slow reply: the reply arrives, is held, and is used on Continue. A retry after a parse failure gets a fresh answer (before, it repeated the failure). Manual sandbox: when the opponent acts on a turn's last beat, its box names that move ("Now … Gore"), then the next one ("Next move … Charge").
+- `node tools/shots.mjs`: no text under 12 px, no overflow. Stub-worker screenshots of the stopped, paused and thinking states at 1440, 1180 and 390 px were reviewed by eye.
+- **Real inference, hardware WebGPU (RTX 4090), Qwen 2.5 3B:** `QUEST_PROFILE=artifacts/llm-test-profile npm run test:llm -- --full` passed: one-turn runs gave the forced departure, then `quick`; the retreat orders still gave `retreat` (that decision was prepared ahead during the departure's playback); the introductory assignment was won in 6 turns with 37 HP; no browser errors.
+- `QUEST_PROFILE=artifacts/llm-test-profile npm run test:llm -- --circuit` (careful example orders, normal pace, continuous run): **won with 1 HP on turn 32**, with the same 26 model decisions as the recorded runs (decoding is greedy, so the read-ahead does not change the choices). **All 26 decisions were ready before their options appeared** (24 of 26 with the old one-ahead read), the hero visibly waited 0 ms, model time was 16.4 s in all, and the run took 122 s on screen.
+
+Not checked: how Pause and the stop mode feel to a person, phones, other browsers, and read-ahead on slower hardware.
+
 ## Orders size instead of the complexity meter (2026-11-14)
 
 - `npm test` passed (50 tests). The complexity test was replaced by one for the size line. It checks words, estimated tokens marked "about", and an exact count shown only for the text that was counted.

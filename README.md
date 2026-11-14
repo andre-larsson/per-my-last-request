@@ -2,7 +2,7 @@
 
 A local prototype of a prompt-controlled adventure. Write standing orders for a guild applicant, watch their decisions, then revise the prompt and retry.
 
-The introductory assignment teaches one rule: the hero must fight the practice rat to earn a stamp, then return home. Its first draft tells the hero to retreat from every fight. Change the orders to complete the assignment. A second, twelve-stop guild circuit adds resource management, equipment, and a champion.
+The introductory assignment teaches one rule: the hero must fight the practice rat to earn a stamp, then return home. Its first draft tells the hero to retreat from every fight. Change the orders to complete the assignment. Two middle assignments then add the rest a few rules at a time: **Fair warning** (opponents announce their moves, and the hero can guard) and **Prize money** (the circuit's second half, with coins, gear and the champion). The last is the full twelve-stop guild circuit.
 
 The project name is `per-my-last-request`, styled **Per My Last ReQuest** in the game. The setting uses guild trials, equipment, contracts, and comic administrative incompetence. It avoids the bells, lantern objectives, coastal story, and other signature motifs of the neighboring Brinelight and Menhir projects.
 
@@ -48,12 +48,14 @@ Only Chrome on Linux with an NVIDIA GPU (X11, `npm run play` flags) has been tes
 The screen has three numbered columns: **1 Write the orders**, **2 Watch the trial**, **3 Read the report**.
 
 1. The game checks WebGPU without downloading anything. The button under the stage names the selected model and its download size; click it to load. The initial download can take a few minutes, or much longer on a slow connection; loading stops only after five minutes without progress. **Play manually** skips the model and opens the Manual sandbox.
-2. Click **Run these orders**, or use **One decision** to inspect each action. The stage shows the hero and the current opponent or place; the panel under it shows the last move, the options on the table, and (under **What the hero is told this turn**) the exact text the model receives. Each turn plays back in beats: the options stay up while the hero weighs them, the choice is stamped and the others struck through, then the hero's action, the opponent's answer, any counter and any reward follow one at a time, each with its own sound. **Pace** (normal, fast, slow) and **♪** (sound on or off) sit beside the status line; **Skip** ends a turn's playback.
-3. Compare the two example orders, or write your own. If you edit the orders mid-trial, the next run or single decision restarts the trial with the new text.
+2. Click **Run these orders**. The stage shows the hero and the current opponent or place, and under them the turn being played. The panel under the controls shows the options on the table and (under **What the hero is told this turn**) the exact text the model receives. Each turn plays back in beats: the options stay up while the hero weighs them, the choice is stamped and the options not taken are crossed out, then the hero's action, the opponent's answer, any counter and any reward follow one at a time, each with its own sound. **Pace** and **♪** (sound on or off) sit beside the status line; **Skip** ends a turn's playback.
+   - **Pace: Turn by turn** (the default) plays one turn per click and keeps that turn on the stage until **Next turn**. The model reads up to three decisions ahead meanwhile, so the next turn usually starts at once. **Normal** and **Fast** play turn after turn.
+   - **Pause** freezes the trial at once, mid-turn if need be; **Continue** carries on from the same moment. While paused you can read, edit the orders, or switch assignment.
+3. Compare the two example orders, or write your own. If you edit the orders mid-trial, the run button says **Restart with new orders**, and the trial restarts with the new text.
 4. Read the report and optionally save its JSON.
-5. After the introductory assignment, choose **Next assignment** to try the full circuit. The two assignment tabs also let you switch directly. The **Rulebook** button lists every rule.
+5. After each assignment, choose **Next assignment** to go on: First instructions, Fair warning, Prize money, then the full circuit. The four assignment tabs also let you switch directly. In the two middle assignments, **An unfortunate first draft** is the previous assignment's winning orders, which fail on the new rule. The **Rulebook** button lists every rule.
 
-The recommended **Qwen 3B** model uses WebGPU, downloads approximately 1.7 GB on first use, and needs roughly 3 GB GPU memory. The introductory assignment is deliberately short. Long policies in the second assignment are experimental: the tested models could ignore some of their conditions.
+The recommended **Qwen 3B** model uses WebGPU, downloads approximately 1.7 GB on first use, and needs roughly 3 GB GPU memory. The introductory assignment is deliberately short. Long policies in the later assignments are experimental: the tested models could ignore some of their conditions.
 
 Other GPU models use WebLLM with four-bit weights and 32-bit arithmetic. The Qwen 2.5 7B build downloads approximately 4 GB and needs roughly 6 GB of GPU memory. Qwen 1.5B and 0.5B builds are also available. Bigger models did not automatically solve the multi-rule circuit in testing; see the recorded limits in `VERIFICATION.md`.
 
@@ -70,15 +72,16 @@ A browser supporting the WebGPU API may still lack a usable adapter or enough me
 ## What the demo implements
 
 - An introductory assignment with one required training stamp, a return to camp, and a twelve-turn deadline.
+- Two middle assignments on parts of the same course: Fair warning (the three stamp fights, with announced moves and guard, 16 turns) and Prize money (the circuit's second half: purse, optional prize fight, medic, Quickfoot, armorer, bench and champion, 30 turns).
 - Progression to a fixed twelve-stop circuit with three stamps, an optional prize fight, a field medic, an armorer, a rest bench, and a champion.
 - Health, stamina, two healing potions, coins, a choice of gear (sharper sword, buckler or extra potions), and a 32-turn deadline in the full circuit.
 - A pure game engine. Quick strikes restore stamina; heavy strikes consume it. Agile enemies evade heavy strikes. An active enemy retaliates after a potion or a nonlethal attack.
-- In the full circuit every opponent repeats a short routine and announces its next move: an ordinary strike, a big smash, bracing (strikes deal half) or winded (no attack). Guard blocks part of a hit; guarding a smash also counters it for a heavy strike's damage. The best action depends on what the opponent is about to do, so the orders have something to say about it. Each circuit prompt ends with a yes/no checklist (enemy about to SMASH, BRACING, WINDED, health LOW, optional fight), so short orders like "guard against a SMASH" can be matched directly. The introductory assignment keeps the original, simpler rules.
+- From Fair warning on, every opponent repeats a short routine and announces its next move: an ordinary strike, a big smash, bracing (strikes deal half) or winded (no attack). Guard blocks part of a hit; guarding a smash also counters it for a heavy strike's damage. The best action depends on what the opponent is about to do, so the orders have something to say about it. Each circuit prompt ends with a yes/no checklist (enemy about to SMASH, BRACING, WINDED, health LOW, optional fight), so short orders like "guard against a SMASH" can be matched directly. The introductory assignment keeps the original, simpler rules.
 - Four optional commendations (finish early, use no potions, beat the prize bruiser, never take an unguarded smash). No single plan earns them all.
 - The size of the orders, in words and tokens (the pieces of text a model reads). A loaded model counts the tokens with its own tokenizer; before that they are estimated and shown as "about". The size makes no claim about how well a model will follow the orders, and never changes how a trial plays.
 - Browser inference in a dedicated Web Worker. Both backends generate a JSON action ID. CPU decoding is restricted to the offered JSON strings; GPU decoding uses WebLLM's JSON Schema support.
 - Strict parsing, a second engine-side legality check, retry without consuming turns on format errors, and stale-response rejection after pause/restart/controller changes.
-- Pause, single-step, reset, editable standing orders, local prompt persistence, and a report export.
+- Pause, a turn-by-turn pace, reset, editable standing orders, local prompt persistence, and a report export.
 - Turn playback decoupled from the engine: a turn resolves at once, then the stage replays it beat by beat while the model already reads the next turn.
 - Responsive layouts for three, two and one columns. The circuit map is code-drawn SVG. Portraits are generated illustrations stored in `assets/art/` (requests in `assets-src/wanted-images.tsv`); a letter placeholder appears if one is missing. No external font dependencies.
 
@@ -131,7 +134,9 @@ npm run test:browser
 npm run test:llm
 npm run test:llm -- --full
 npm run test:llm -- --circuit   # the model also plays the full circuit with the example orders; recorded as evidence
-node tools/balance.mjs          # balance proxies for the full circuit (no browser, no model)
+npm run test:llm -- --levels    # the model also plays both middle assignments, with each one's careful orders and first draft
+                                # (--levels=prize for one; QUEST_ORDERS='A || B' to compare other orders)
+node tools/balance.mjs          # balance proxies for the full circuit (no browser, no model); --level warning|prize for the others
 node tools/probe.mjs            # the real model answers 13 fixed circuit situations with the example orders
 npm run test:llm -- --cpu
 QUEST_MODEL=Qwen3-8B-q4f32_1-MLC npm run test:llm -- --full
@@ -139,7 +144,7 @@ QUEST_LOAD_MINUTES=60 npm run test:llm -- --full   # allow a slow first download
 QUEST_PROFILE=artifacts/llm-test-profile npm run test:llm -- --full   # keep the test browser profile, so a download is not repeated
 ```
 
-Rule tests need only Node. Browser tests need Google Chrome (`CHROME=/path/to/chrome` can override the executable). The UI smoke test uses a deterministic policy to exercise the real controls and complete the circuit; it is not an LLM benchmark. It then exercises the LLM-mode controls (load, thinking, a stale reply after Restart, unusable output, edited orders, pause, turn playback with decisions prepared ahead, Pause during playback, Skip) against a stub worker that the test injects; that part involves no inference either. `node tools/shots.mjs` saves review screenshots of every main state at three window sizes.
+Rule tests need only Node. Browser tests need Google Chrome (`CHROME=/path/to/chrome` can override the executable). The UI smoke test uses a deterministic policy to exercise the real controls and complete the circuit, then wins the two middle assignments with fixed clicks; it is not an LLM benchmark. It then exercises the LLM-mode controls (load, thinking, a stale reply after Restart, unusable output, edited orders, pause, turn playback with decisions prepared ahead, Pause during playback, Skip) against a stub worker that the test injects; that part involves no inference either. `node tools/shots.mjs` saves review screenshots of every main state at three window sizes.
 
 The LLM smoke test downloads the real baseline GPU model in an isolated browser and verifies a combat decision, then changes the standing orders and checks that the same situation produces a different action. `--full` additionally checks a complete model-controlled introductory assignment. `--cpu` selects the experimental CPU model. `--software-gpu` selects Qwen 0.5B with software WebGPU for a GPU-runtime diagnostic. `QUEST_MODEL` overrides the GPU model and stores its evidence in a separate model-named artifact directory. Test browser profiles are temporary and removed afterward.
 

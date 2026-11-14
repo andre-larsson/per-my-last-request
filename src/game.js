@@ -19,6 +19,16 @@ export const TUTORIAL_PRESETS = {
   reckless: 'Always retreat from every enemy. Leave every fight immediately. Never attack.',
   careful: 'Fight the practice rat using quick strikes. After earning its training stamp, return to camp and submit the assignment.',
 };
+// In the two middle assignments the first draft is the previous assignment's winning orders, carried over. Each loses
+// to the one new thing that assignment adds: the announced SMASH, then a fight long enough to need potions.
+export const WARNING_PRESETS = {
+  reckless: 'Fight every opponent using quick strikes. After earning all three training stamps, return to camp and submit the assignment.',
+  careful: 'Quick strike every turn, except: guard against a SMASH.',
+};
+export const PRIZE_PRESETS = {
+  reckless: WARNING_PRESETS.careful,
+  careful: 'Quick strike every turn, except: guard against a SMASH and drink a potion when health is LOW. Fight the prize bruiser, buy only the sharper sword, skip the bench, and submit at camp as soon as you can.',
+};
 
 // What an opponent does on its turn. Each circuit opponent repeats a fixed routine, and its move is announced before the hero acts.
 //   strike: an ordinary hit.  smash: a big hit; guarding it blocks part of it and counters for heavy-strike damage.
@@ -46,10 +56,35 @@ export const TILES = [
   { name: 'Home stretch', kind: 'road', short: 'HOME' },
 ];
 
+// The assignments, easiest first. Each walks a course through some of the stops above, always in circuit order, with the
+// same opponents and prices everywhere. Each step adds a few things:
+//   tutorial  one fight, no announced moves, no guard.
+//   warning   announced moves, guard and its counter, armor, an agile opponent: the three stamp fights.
+//   prize     the circuit's second half: coins, the optional prize fight, medic, armorer, bench and the champion.
+//   circuit   both halves in one trial, against a tighter clock, with commendations.
+export const LEVELS = {
+  tutorial: { title: 'First instructions', course: [0, 1, 11], turnLimit: 12, stamps: ['rat'], champion: false, announced: false, presets: TUTORIAL_PRESETS,
+    objective: () => 'Defeat the practice rat, earn one training stamp, return to camp, and submit the assignment before 12 turns.' },
+  warning: { title: 'Fair warning', course: [0, 1, 3, 7, 11], turnLimit: 16, stamps: ['rat', 'boar', 'quickfoot'], champion: false, announced: true, presets: WARNING_PRESETS,
+    objective: s => `Earn the rat, boar, and Quickfoot stamps, return to camp, and submit the assignment before ${s.turnLimit} turns.` },
+  prize: { title: 'Prize money', course: [0, 4, 5, 6, 7, 8, 9, 10, 11], turnLimit: 30, stamps: ['quickfoot'], champion: true, announced: true, presets: PRIZE_PRESETS,
+    objective: s => `Earn the Quickfoot stamp, defeat the champion, return to camp, and submit the assignment before ${s.turnLimit} turns.` },
+  circuit: { title: 'The full circuit', course: TILES.map((tile, i) => i), turnLimit: MAX_TURNS, stamps: ['rat', 'boar', 'quickfoot'], champion: true, announced: true, commendations: true, presets: PRESETS,
+    objective: s => `Earn the rat, boar, and Quickfoot stamps, defeat the champion, return to camp, and submit the assignment before ${s.turnLimit} turns.` },
+};
+export const LEVEL_ORDER = Object.keys(LEVELS);
+/** The rules of a game's assignment. An unknown level plays as the full circuit, as before levels had a table. */
+export const levelOf = s => LEVELS[s.level] || LEVELS.circuit;
+/** The assignment after this one, or null after the last. */
+export const nextLevel = level => LEVEL_ORDER[LEVEL_ORDER.indexOf(level) + 1] || null;
+
 export function newGame(level = 'tutorial') {
-  return { level, turnLimit: level === 'tutorial' ? 12 : MAX_TURNS, revision: 0, turn: 0, position: 0, lap: 1, hp: 40, maxHp: 40, stamina: 4, potions: 2, coins: 0, sword: 0, buckler: 0, stamps: [], champion: false, prizeWon: false, drank: 0, bigHitsTaken: 0, medicUsed: false, purseTaken: false, benchUsed: false, enemy: null, resolved: false, status: 'ready', log: [] };
+  return { level, turnLimit: (LEVELS[level] || LEVELS.circuit).turnLimit, revision: 0, turn: 0, position: 0, lap: 1, hp: 40, maxHp: 40, stamina: 4, potions: 2, coins: 0, sword: 0, buckler: 0, stamps: [], champion: false, prizeWon: false, drank: 0, bigHitsTaken: 0, medicUsed: false, purseTaken: false, benchUsed: false, enemy: null, resolved: false, status: 'ready', log: [] };
 }
-export function assignmentReady(s) { return s.level === 'tutorial' ? s.stamps.includes('rat') : s.champion && s.stamps.length === 3; }
+export function assignmentReady(s) {
+  const rules = levelOf(s);
+  return rules.stamps.every(stamp => s.stamps.includes(stamp)) && (!rules.champion || s.champion);
+}
 export function currentTile(s) { return TILES[s.position]; }
 
 /** The opponent's move this turn, or null outside a fight. The tutorial rat has a plain, unannounced routine. */
@@ -59,7 +94,7 @@ export function nextMove(enemy) {
   if (!enemy.routine?.length) return { kind: 'strike', name: 'Strike', damage: enemy.damage };
   return enemy.routine[(enemy.step || 0) % enemy.routine.length];
 }
-const announced = s => s.level !== 'tutorial';
+const announced = s => levelOf(s).announced;
 
 /** Damage a strike would deal this turn, given the opponent's armor, agility and current move. */
 export function strikeDamage(s, style) {
@@ -149,8 +184,8 @@ function defeat(s, say) {
   s.coins += prize;
   if (e.optional) s.prizeWon = true;
   say('world', 'defeat', `${e.name} defeated.${e.optional ? ` Prize: ${prize} coins.` : ''}`);
-  if (e.stamp && !s.stamps.includes(e.stamp)) { s.stamps.push(e.stamp); say('world', 'stamp', `Earned a training stamp (${s.stamps.length}/${s.level === 'tutorial' ? 1 : 3}).`); }
-  if (e.boss) { s.champion = true; say('world', 'champion', 'Champion defeated. Return to camp with all three stamps.'); }
+  if (e.stamp && !s.stamps.includes(e.stamp)) { s.stamps.push(e.stamp); say('world', 'stamp', `Earned a training stamp (${s.stamps.length}/${levelOf(s).stamps.length}).`); }
+  if (e.boss) { s.champion = true; say('world', 'champion', levelOf(s).stamps.length === 3 ? 'Champion defeated. Return to camp with all three stamps.' : 'Champion defeated. Return to camp with the training stamp.'); }
   s.enemy = null;
   s.resolved = true;
 }
@@ -176,7 +211,8 @@ export function applyAction(state, actionId, source = 'manual') {
   let guarding = false;
   if (command.type === 'advance') {
     s.enemy = null;
-    s.position = s.level === 'tutorial' && s.position === 1 ? 11 : (s.position + 1) % TILES.length;
+    const course = levelOf(s).course;
+    s.position = course[(course.indexOf(s.position) + 1) % course.length];
     s.stamina = Math.min(4, s.stamina + 1);
     enterTile(s, say);
   } else if (command.type === 'attack') {
@@ -258,9 +294,9 @@ export const COMMENDATIONS = [
   { id: 'overtime', label: 'Overtime', rule: 'Beat the optional prize bruiser too.', earned: s => s.prizeWon },
   { id: 'textbook', label: 'By the book', rule: 'Never take a smash without guarding.', earned: s => s.bigHitsTaken === 0 },
 ];
-/** Commendations for a finished circuit. Empty for the tutorial or an unfinished trial. */
+/** Commendations for a finished circuit. Empty for the other assignments or an unfinished trial. */
 export function commendations(s) {
-  if (s.level === 'tutorial' || s.status !== 'won') return [];
+  if (!levelOf(s).commendations || s.status !== 'won') return [];
   return COMMENDATIONS.map(c => ({ id: c.id, label: c.label, rule: c.rule, earned: c.earned(s) }));
 }
 
@@ -271,12 +307,12 @@ export function observation(s) {
   if (enemy) delete enemy.routine;
   if (enemy && announced(s)) enemy.nextMove = { name: m.name, kind: m.kind, damage: MOVE_KINDS[m.kind].hits ? m.damage : 0, effect: MOVE_KINDS[m.kind].summary };
   return {
-    objective: s.level === 'tutorial' ? 'Defeat the practice rat, earn one training stamp, return to camp, and submit the assignment before 12 turns.' : `Earn the rat, boar, and Quickfoot stamps, defeat the champion, return to camp, and submit the assignment before ${s.turnLimit} turns.`,
+    objective: levelOf(s).objective(s),
     hero: { hp: s.hp, maxHp: s.maxHp, healthStatus: s.hp <= LOW_HP ? 'LOW' : 'OK', stamina: s.stamina, potions: s.potions, coins: s.coins, swordBonus: s.sword, ...(announced(s) ? { guardBlock: guardBlock(s) } : {}) },
     location: currentTile(s).name,
     enemy,
     ...(announced(s) ? { announcedMoves: true } : {}),
-    progress: { stamps: s.stamps, targetStamps: s.level === 'tutorial' ? 1 : 3, requiresChampion: s.level !== 'tutorial', championDefeated: s.champion, turn: s.turn, turnLimit: s.turnLimit, lap: s.lap },
+    progress: { stamps: s.stamps, targetStamps: levelOf(s).stamps.length, requiresChampion: levelOf(s).champion, championDefeated: s.champion, turn: s.turn, turnLimit: s.turnLimit, lap: s.lap },
     rules: 'Quick attacks restore 1 stamina. Heavy attacks cost 2 stamina. Healing restores up to 18 HP and consumes a turn. An active enemy retaliates after healing or a nonlethal attack. The field medic heals 12 HP once. Walking restores 1 stamina. Retreat loses 2 HP and forfeits that enemy reward. Agile enemies evade heavy strikes. Model thinking does not consume game turns.',
     recentEvents: s.log.slice(-2).map(e => e.detail),
   };

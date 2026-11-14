@@ -3,10 +3,10 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#173528">
+  <meta name="theme-color" content="#0c0a09">
   <meta name="description" content="An adventurer follows your standing orders. Rewrite the prompt, retry the circuit, and get them home alive. Runs an LLM in your browser.">
   <title>Per My Last ReQuest — a prompt-controlled adventure</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='9' fill='%231f4a37'/%3E%3Ctext x='20' y='29' text-anchor='middle' font-size='28' fill='%23f5ecd6'%3EQ%3C/text%3E%3C/svg%3E">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='9' fill='%23a12b17'/%3E%3Ctext x='20' y='29' text-anchor='middle' font-size='28' fill='%23f5ecd6'%3EQ%3C/text%3E%3C/svg%3E">
   <link rel="stylesheet" href="./style.css">
   <script type="module" src="./src/app.js"></script>
 </head>
@@ -31,7 +31,9 @@
         <h3>Assignments</h3>
         <ul>
           <li><strong>01 · First instructions:</strong> earn the practice rat’s stamp and submit at camp within 12 turns.</li>
-          <li><strong>02 · The full circuit:</strong> earn three stamps, beat the champion and submit at camp within 32 turns.</li>
+          <li><strong>02 · Fair warning:</strong> earn the rat, boar and Quickfoot stamps and submit at camp within 16 turns.</li>
+          <li><strong>03 · Prize money:</strong> the circuit’s second half. Earn Quickfoot’s stamp, beat the champion and submit at camp within 30 turns.</li>
+          <li><strong>04 · The full circuit:</strong> earn three stamps, beat the champion and submit at camp within 32 turns.</li>
           <li>Every action takes one turn. Model loading and thinking take none.</li>
           <li>Passing camp unfinished starts a new lap: opponents gain 3 HP and 1 damage.</li>
         </ul>
@@ -47,7 +49,7 @@
         </ul>
       </section>
       <section>
-        <h3>Reading the opponent <small>full circuit</small></h3>
+        <h3>Reading the opponent <small>from 02</small></h3>
         <ul>
           <li>Every opponent repeats a routine and <strong>announces its move</strong> before the hero acts.</li>
           <li><strong>Strike:</strong> an ordinary hit. <strong>Smash:</strong> a big hit.</li>
@@ -74,7 +76,7 @@
         </ul>
       </section>
       <section>
-        <h3>Commendations <small>optional</small></h3>
+        <h3>Commendations <small>full circuit, optional</small></h3>
         <ul>
           <li><strong>Ahead of schedule:</strong> submit by turn 26.</li>
           <li><strong>No expense claims:</strong> win without drinking a potion.</li>
@@ -92,14 +94,16 @@
         <div class="step-head"><span class="step-num" aria-hidden="true">2</span><h2>Watch the trial</h2></div>
         <div class="tabs" role="group" aria-label="Assignment">
           <button data-level="tutorial" aria-pressed="true"><span>01</span> First instructions</button>
-          <button data-level="circuit" aria-pressed="false"><span>02</span> The full circuit</button>
+          <button data-level="warning" aria-pressed="false"><span>02</span> Fair warning</button>
+          <button data-level="prize" aria-pressed="false"><span>03</span> Prize money</button>
+          <button data-level="circuit" aria-pressed="false"><span>04</span> The full circuit</button>
         </div>
       </header>
 
       <div class="brief">
         <ol id="objective" class="objective" aria-label="Assignment checklist"></ol>
         <div class="deadline" id="deadline">
-          <span class="deadline-label">Turn</span>
+          <span class="deadline-label">Turns used</span>
           <strong id="turn-value">0 / 12</strong>
           <div class="deadline-track" aria-hidden="true"><div id="turn-bar"></div></div>
           <span id="turn-left" class="deadline-left">12 left</span>
@@ -107,6 +111,7 @@
       </div>
 
       <div id="stage" class="stage">
+        <p id="paused-badge" class="paused-badge" hidden><span aria-hidden="true">Ⅱ</span> Paused</p>
         <div class="fighters">
           <article id="hero-card" class="fighter hero" aria-label="Hero status">
             <div class="portrait"><span class="portrait-fallback" aria-hidden="true">✦</span><img id="hero-art" src="./assets/art/hero.webp" alt="" onerror="this.hidden=true"><span id="hp-flag" class="flag" hidden>Low health</span><span id="hero-says" class="says" hidden></span></div>
@@ -151,7 +156,7 @@
         <div class="controls-top">
           <p id="run-status" class="run-status" role="status">Your hero is waiting for instructions. Impatiently.</p>
           <div class="playback-settings">
-            <button id="pace" class="ghost small" type="button">Pace: Normal</button>
+            <button id="pace" class="ghost small" type="button">Pace: Turn by turn</button>
             <button id="sound" class="ghost small" type="button" aria-pressed="true">♪ On</button>
           </div>
         </div>
@@ -160,13 +165,10 @@
           <button id="load-cta" class="primary">Load local model <span aria-hidden="true">↓</span></button>
           <button id="run" class="primary" disabled>Run these orders <span aria-hidden="true">→</span></button>
           <button id="next-level" class="primary" hidden>Next assignment <span aria-hidden="true">→</span></button>
-          <button id="step" class="secondary" disabled>One decision</button>
           <button id="manual-cta" class="secondary">Play manually</button>
           <button id="reset" class="ghost">Restart</button>
         </div>
       </div>
-
-      <div id="last-move" class="last-move"></div>
 
       <div id="options-wrap" class="options-wrap">
         <p id="options-title" class="section-label"></p>

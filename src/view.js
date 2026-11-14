@@ -1,6 +1,6 @@
 // Pure presentation helpers. They read game state and return plain data or HTML strings.
 // Rules and outcomes stay in game.js; nothing here changes a game.
-import { TILES, currentTile, assignmentReady, nextMove, guardBlock, counterDamage, commendations, PRICES, SWORD_BONUS, BUCKLER_BLOCK, BENCH_HP, MEDIC_HP } from './game.js';
+import { TILES, LEVELS, levelOf, nextLevel, currentTile, assignmentReady, nextMove, guardBlock, counterDamage, commendations, PRICES, SWORD_BONUS, BUCKLER_BLOCK, BENCH_HP, MEDIC_HP } from './game.js';
 
 export const escapeHtml = value => String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -9,14 +9,14 @@ export const TILE_ART = ['camp', 'rat', 'noticeboard', 'boar', 'purse', 'bruiser
 export const artUrl = name => `./assets/art/${name}.webp`;
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
-export const stampTarget = game => game.level === 'tutorial' ? 1 : 3;
+export const stampTarget = game => levelOf(game).stamps.length;
 
 /** The assignment as an ordered checklist. Exactly one unfinished step is marked `next`. */
 export function objectiveSteps(game) {
-  const tutorial = game.level === 'tutorial';
-  const steps = TILES.filter(tile => tile.stamp && (!tutorial || tile.stamp === 'rat'))
+  const rules = levelOf(game);
+  const steps = TILES.filter(tile => tile.stamp && rules.stamps.includes(tile.stamp))
     .map(tile => ({ kind: 'stamp', label: tile.name, art: TILE_ART[TILES.indexOf(tile)], done: game.stamps.includes(tile.stamp) }));
-  if (!tutorial) steps.push({ kind: 'champion', label: 'Champion', art: 'champion', done: game.champion });
+  if (rules.champion) steps.push({ kind: 'champion', label: 'Champion', art: 'champion', done: game.champion });
   steps.push({ kind: 'home', label: 'Submit at camp', art: 'camp', done: game.status === 'won' });
   // Stamps can be earned in any order, so only the final steps wait for the earlier ones.
   const next = steps.find(step => !step.done);
@@ -35,6 +35,20 @@ export function intentFor(game) {
   return { kind: m.kind, tag: 'Strike', name: m.name, damage: m.damage, note: `An ordinary hit. Guard would block ${Math.min(block, m.damage)}.` };
 }
 
+// What camp says before each assignment starts: the goal, and what is new.
+const BRIEFS = {
+  tutorial: () => 'First assignment: defeat the practice rat for its stamp, then return here and submit, all within 12 turns.',
+  warning: game => `Three stamps and a safe return within ${game.turnLimit} turns. New: every opponent announces its next move, and the hero can guard.`,
+  prize: game => `The circuit's second half: Quickfoot's stamp, the champion and a safe return within ${game.turnLimit} turns. New: coins, an optional prize fight, the medic, the armorer and a bench.`,
+  circuit: game => `Three stamps, one champion and a safe return within ${game.turnLimit} turns. Every opponent announces its next move. The hero carries two potions and no enthusiasm.`,
+};
+// What the verdict suggests after winning each assignment.
+const NEXT_HINTS = {
+  tutorial: 'Next: Fair warning, where opponents announce their moves and the hero can guard.',
+  warning: 'Next: Prize money, the circuit’s second half, with coins to earn and spend, and the champion.',
+  prize: `Next: the full circuit, both halves in one trial against a ${LEVELS.circuit.turnLimit}-turn clock, with commendations to earn.`,
+};
+
 /** What the right-hand stage card shows: an opponent, or the place the hero is standing. */
 export function sceneFor(game) {
   const tile = currentTile(game);
@@ -43,7 +57,7 @@ export function sceneFor(game) {
   if (game.enemy) {
     const e = game.enemy;
     // The introductory assignment has no announced moves: its rat simply hits back.
-    const announced = game.level !== 'tutorial';
+    const announced = levelOf(game).announced;
     const traits = announced ? [] : [{ label: `Hits for ${e.damage}`, note: 'after each strike or potion' }];
     if (e.armor) traits.push({ label: `Armor ${e.armor}`, note: `blocks ${e.armor} from every strike` });
     if (e.agile) traits.push({ label: 'Agile', note: announced ? 'a heavy strike deals only 3, unless it is winded' : 'a heavy strike deals only 3' });
@@ -66,8 +80,7 @@ export function sceneFor(game) {
   if (tile.kind === 'camp') {
     const text = assignmentReady(game) ? 'Every requirement is met. All that remains is to submit the assignment.'
       : game.turn > 0 ? 'Back at camp with the assignment unfinished. Another lap is possible, but every opponent grows stronger.'
-      : game.level === 'tutorial' ? 'First assignment: defeat the practice rat for its stamp, then return here and submit, all within 12 turns.'
-      : `Three stamps, one champion and a safe return within ${game.turnLimit} turns. Every opponent announces its next move. The hero carries two potions and no enthusiasm.`;
+      : BRIEFS[game.level]?.(game) ?? BRIEFS.circuit(game);
     return { ...base, kicker: 'Start and finish', text };
   }
   if (tile.kind === 'medic') return { ...base, kicker: 'Service', traits: game.medicUsed ? [] : [{ label: `+${MEDIC_HP} HP`, note: 'free, once per trial, takes a turn' }], text: game.medicUsed ? 'The medic has already treated the hero this trial.' : 'One free treatment. Walking past saves a turn.' };
@@ -104,32 +117,21 @@ const chips = entry => deltas(entry).map(d => `<span class="chip ${d.good ? 'gai
 export const SOURCE_LABEL = { llm: 'LLM chose', auto: 'No choice', manual: 'You chose' };
 const sourceLabel = source => SOURCE_LABEL[source] || source;
 
-/** The turn's events as lines, each marked with who acted: the hero, the opponent, or the course itself. Lines from `upto` on are laid out but not shown yet. */
-const eventLines = (entry, upto) => entry.events?.length
-  ? entry.events.map((event, i) => `<li class="actor-${event.actor}${i >= upto ? ' pending' : i === upto - 1 && Number.isFinite(upto) ? ' now' : ''}">${escapeHtml(event.text)}</li>`).join('')
-  : `<li class="actor-world">${escapeHtml(entry.detail)}</li>`;
-
-/**
- * The latest turn, under the controls. During playback it fills in with the stage: `upto` events shown so far.
- * `fresh` slides the card in, for the first time a turn appears.
- */
-export function lastMoveHtml(game, seconds = null, { upto = Infinity, fresh = true } = {}) {
-  const entry = game.log.at(-1);
-  if (!entry) return '';
-  const done = upto >= (entry.events?.length ?? 0);
-  const tone = !done ? 'plain' : entry.after.hp < entry.before.hp ? 'bad' : entry.after.stamps > entry.before.stamps ? 'good' : 'plain';
-  const timing = entry.source === 'llm' && seconds !== null ? ` · ${seconds.toFixed(1)} s` : '';
-  return `<div class="move tone-${tone}${fresh ? ' fresh' : ''}"><p class="move-head"><span class="section-label">Turn ${entry.turn} · ${escapeHtml(sourceLabel(entry.source))}${timing}</span></p><p class="move-action">${escapeHtml(entry.label)}</p><ul class="move-lines">${eventLines(entry, upto)}</ul><p class="chips${done ? '' : ' pending'}">${chips(entry)}</p></div>`;
-}
-
 // ---------------------------------------------------------------------------
 // Turn playback. The engine resolves a turn at once; the interface then shows it as a few beats:
 // the decision first, then each event in the order the engine resolved it. The model can already
 // work on the next turn while these play, so its thinking time is mostly hidden behind them.
 
-/** Playback speeds, as multipliers on the beat durations below. */
-export const PACES = { slow: 1.6, normal: 1, fast: 0.5 };
-export const PACE_ORDER = ['normal', 'fast', 'slow'];
+/**
+ * Paces, in the order the Pace button cycles through them. `speed` multiplies the beat durations below.
+ * "Turn by turn" plays each turn at normal speed and then stops until the player asks for the next one.
+ */
+export const PACES = {
+  step: { label: 'Turn by turn', speed: 1, stops: true, note: 'Plays one turn, then waits for Next turn.' },
+  normal: { label: 'Normal', speed: 1, stops: false, note: 'Plays turn after turn until you pause.' },
+  fast: { label: 'Fast', speed: 0.5, stops: false, note: 'Plays turn after turn at double speed.' },
+};
+export const PACE_ORDER = ['step', 'normal', 'fast'];
 /** Beat durations at normal pace, in milliseconds. `consider` is the least time the options stay up before a model's choice is revealed. */
 export const BEAT_MS = { consider: 1400, choice: 1100, own: 600, event: 750, perWord: 45, big: 1300 };
 
@@ -208,7 +210,10 @@ export function displayAt(before, after, beats, index) {
 }
 
 const CHOSE = { llm: 'The hero chose', manual: 'You chose', auto: 'No choice' };
-/** The play-by-play under the fighters. Every line is laid out from the start, so the box keeps its height while lines appear. */
+/**
+ * The play-by-play under the fighters. Every line is laid out from the start, so the box keeps its height while lines
+ * appear. `index` is the beat on screen; `Infinity` shows the whole turn at rest, as kept for review at a stop.
+ */
 export function turnFeedHtml({ entry, beats, offered, index }, seconds = null) {
   const passed = offered.filter(action => action.id !== entry.action);
   const timing = entry.source === 'llm' && seconds !== null ? ` · ${seconds.toFixed(1)} s` : '';
@@ -244,7 +249,7 @@ export function verdictFor(game) {
   if (game.status === 'won') {
     const medals = commendations(game);
     const missed = medals.filter(m => !m.earned);
-    const hint = game.level === 'tutorial' ? 'Next: the full circuit, where opponents announce their moves and the orders need to cover a lot more.'
+    const hint = nextLevel(game.level) ? NEXT_HINTS[game.level]
       : !missed.length ? 'Every commendation in one trial. The guild suspects paperwork fraud.'
       : `Different orders earn different commendations. Still unclaimed: ${missed.map(m => `${m.label} (${m.rule.replace(/\.$/, '').toLowerCase()})`).join('; ')}.`;
     return { tone: 'won', stamp: 'Accepted', title: 'Assignment accepted.', text: `Home in ${plural(game.turn, 'turn')} with ${game.hp} HP and ${plural(game.potions, 'potion')} to spare. The hero would like to discuss the fee.`, hint, tally, commendations: medals };
@@ -252,7 +257,7 @@ export function verdictFor(game) {
   const missing = [];
   const target = stampTarget(game);
   if (game.stamps.length < target) missing.push(`${game.stamps.length} of ${plural(target, 'stamp')} earned`);
-  if (game.level !== 'tutorial' && !game.champion) missing.push('champion undefeated');
+  if (levelOf(game).champion && !game.champion) missing.push('champion undefeated');
   if (!missing.length) missing.push('assignment never submitted at camp');
   const dead = game.hp === 0;
   return {

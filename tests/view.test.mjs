@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { newGame, applyAction, availableActions, TILES, LOW_HP, observation, nextMove, strikeDamage, commendations, PRESETS, TUTORIAL_PRESETS } from '../src/game.js';
-import { objectiveSteps, sceneFor, deltas, lastMoveHtml, journalHtml, verdictFor, verdictHtml, actionTally, ordersSize, estimateTokens, TILE_ART, turnBeats, displayAt, turnFeedHtml, shoutFor, BEAT_MS } from '../src/view.js';
+import { newGame, applyAction, availableActions, TILES, LOW_HP, observation, nextMove, strikeDamage, commendations, PRESETS, TUTORIAL_PRESETS, LEVELS, LEVEL_ORDER } from '../src/game.js';
+import { objectiveSteps, sceneFor, deltas, journalHtml, verdictFor, verdictHtml, actionTally, ordersSize, estimateTokens, TILE_ART, turnBeats, displayAt, turnFeedHtml, shoutFor, BEAT_MS } from '../src/view.js';
 import { renderMap, mapLayout } from '../src/map.js';
 
 const play = (state, ...ids) => ids.reduce((s, id) => applyAction(s, id), state);
@@ -25,6 +25,8 @@ test('the checklist ticks steps as they are earned and marks exactly one next st
   const won = objectiveSteps(tutorialWin());
   assert.deepEqual(won.map(step => step.done), [true, true]);
   assert.equal(won.some(step => step.next), false);
+  assert.deepEqual(objectiveSteps(newGame('warning')).map(step => step.label), ['Practice rat', 'Tin boar', 'Quickfoot', 'Submit at camp']);
+  assert.deepEqual(objectiveSteps(newGame('prize')).map(step => step.label), ['Quickfoot', 'Champion', 'Submit at camp']);
 });
 test('every stop on the circuit has a portrait', () => {
   assert.equal(TILE_ART.length, TILES.length);
@@ -71,19 +73,17 @@ test('log entries show signed changes to the hero', () => {
   assert.match(journalHtml(s.log), /tone-good/);
   assert.match(journalHtml(s.log), /tone-bad/);
   assert.match(journalHtml([]), /Nothing to report/);
-  assert.match(lastMoveHtml(s), /Quick strike/);
-  assert.equal(lastMoveHtml(newGame()), '');
 });
 test('player text is escaped in rendered markup', () => {
   const s = play(newGame('tutorial'), 'depart');
   s.log[0].label = '<img src=x onerror=alert(1)>';
   assert.equal(journalHtml(s.log).includes('<img'), false);
-  assert.equal(lastMoveHtml(s).includes('<img'), false);
 });
 test('the verdict names what went wrong and what the hero mostly did', () => {
   assert.equal(verdictFor(newGame()), null);
   const won = verdictFor(tutorialWin());
   assert.equal(won.tone, 'won');
+  assert.match(won.hint, /^Next: Fair warning/);
   assert.match(won.text, /6 turns with 37 HP and 2 potions/);
   const overdue = tutorialRetreats();
   const lost = verdictFor(overdue);
@@ -96,14 +96,13 @@ test('the verdict names what went wrong and what the hero mostly did', () => {
   assert.equal(verdictFor(dead).stamp, 'Incident');
   assert.match(verdictFor(dead).text, /ran out of health/);
 });
-test('both map layouts place every stop inside the drawing, and the tutorial shows only its three', () => {
-  for (const compact of [false, true]) {
-    const layout = mapLayout('circuit', compact);
-    assert.equal(layout.pos.length, TILES.length);
-    for (const [x, y] of layout.pos) assert.ok(x >= 30 && x <= layout.w - 30 && y >= 71 && y <= layout.h - 30, `${x},${y}`);
-    const tutorial = renderMap(newGame('tutorial'), { compact });
-    assert.equal(tutorial.body.match(/class="node /g).length, 3);
-    assert.equal(renderMap(newGame('circuit'), { compact }).body.match(/class="node /g).length, 12);
+test('every assignment\'s map, wide and narrow, places exactly its own stops inside the drawing, apart from each other', () => {
+  for (const compact of [false, true]) for (const level of LEVEL_ORDER) {
+    const layout = mapLayout(level, compact);
+    const stops = LEVELS[level].course.map(i => layout.pos[i]);
+    for (const [x, y] of stops) assert.ok(x >= 30 && x <= layout.w - 30 && y >= 71 && y <= layout.h - 30, `${level} ${x},${y}`);
+    for (const [i, [x, y]] of stops.entries()) for (const [x2, y2] of stops.slice(i + 1)) assert.ok(Math.hypot(x - x2, y - y2) >= 80, `${level} stops overlap`);
+    assert.equal(renderMap(newGame(level), { compact }).body.match(/class="node /g).length, LEVELS[level].course.length, level);
   }
   const moved = play(newGame('circuit'), 'depart');
   assert.match(renderMap(moved, { from: 0 }).body, /hero-pin moving/);
@@ -127,6 +126,17 @@ test('rulebook: strikes, stamina, armor and retaliation', () => {
   assert.equal(play(boar, 'quick').enemy.hp, 18 - 4, 'armor 2 blocks 2 of a quick strike');
   const retreat = play(boar, 'retreat');
   assert.equal(retreat.hp, boar.hp - 2, 'retreat costs 2 HP');
+});
+test('rulebook: the four assignments, their stamps, champions and turn limits', () => {
+  const rules = level => [LEVELS[level].stamps, LEVELS[level].champion, newGame(level).turnLimit];
+  assert.deepEqual(rules('tutorial'), [['rat'], false, 12]);
+  assert.deepEqual(rules('warning'), [['rat', 'boar', 'quickfoot'], false, 16]);
+  assert.deepEqual(rules('prize'), [['quickfoot'], true, 30]);
+  assert.deepEqual(rules('circuit'), [['rat', 'boar', 'quickfoot'], true, 32]);
+  // Prize money is the circuit's second half: every stop from the purse on.
+  assert.deepEqual(LEVELS.prize.course, [0, 4, 5, 6, 7, 8, 9, 10, 11]);
+  // Opponents announce their moves from assignment 02 on.
+  assert.deepEqual(LEVEL_ORDER.map(level => LEVELS[level].announced), [false, true, true, true]);
 });
 test('rulebook: starting kit, potions, the LOW flag, medic, bench, purse and armorer', () => {
   const fresh = newGame('circuit');
@@ -278,4 +288,8 @@ test('the play-by-play names the choice, strikes through the rest, and reveals l
   assert.equal((feed(0).match(/beat [^"]*shown/g) || []).length, 0);
   assert.equal((feed(2).match(/beat [^"]*shown/g) || []).length, 2);
   assert.match(feed(2), /actor-foe shown now/);
+  // Kept for review at a stop: the whole turn at rest, every line shown and none of it animating as new.
+  const kept = feed(Infinity);
+  assert.equal((kept.match(/beat [^"]*shown/g) || []).length, 3);
+  assert.equal(/\bnow\b/.test(kept), false);
 });

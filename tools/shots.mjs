@@ -47,6 +47,11 @@ const STATES = {
   'tutorial-fight': async () => { await page.click('button[data-mode="manual"]'); await level('tutorial'); await restart(); await act(['depart', 'quick']); },
   'tutorial-win': async () => { await restart(); await act(['depart', 'quick', 'quick', 'advance', 'advance', 'finish']); },
   'tutorial-loss': async () => { await restart(); await act(['depart', 'retreat', 'advance', 'advance', 'advance', 'retreat', 'advance', 'advance', 'advance', 'retreat', 'advance', 'advance']); },
+  'warning-start': async () => { await level('warning'); await restart(); },
+  'warning-boar': async () => { await act(['depart', 'quick', 'quick', 'advance']); },
+  'warning-win': async () => { await reader('false'); },
+  'prize-start': async () => { await level('prize'); await restart(); },
+  'prize-win': async () => { await reader('false'); },
   'circuit-start': async () => { await level('circuit'); await restart(); },
   // The boar announces its charge; guarding it counters.
   'circuit-smash': async () => { await act(['depart', 'quick', 'quick', 'advance', 'advance']); },
