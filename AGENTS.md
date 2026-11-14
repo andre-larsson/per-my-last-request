@@ -13,3 +13,4 @@
 - Preserve prompt and state revisions when changing asynchronous controls so stale model replies cannot act after a restart or pause.
 - Keep this game's fiction distinct from neighboring projects, particularly Brinelight's bells, magical light, tides, and keeper story, and Menhir's standing-stone island puzzles.
 - Do not push, publish, or add a Git remote unless asked.
+- When asked to commit, commit directly to `main`. Do not create a branch first.
