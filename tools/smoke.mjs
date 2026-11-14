@@ -4,11 +4,14 @@ import { join } from 'node:path';
 import { serve, ROOT } from './serve.mjs';
 import { launch, sleep } from './chrome.mjs';
 import { findModel } from '../src/models.js';
+import { newGame, applyAction, nextMove } from '../src/game.js';
 
 const llm = process.argv.includes('--llm');
 const gpuTest = llm && !process.argv.includes('--cpu');
 const softwareGpu = process.argv.includes('--software-gpu');
 const fullTrial = process.argv.includes('--full');
+// --circuit: after the tutorial checks, the model plays the full circuit with the example orders. Evidence, not a pass/fail gate.
+const circuitTrial = process.argv.includes('--circuit');
 const customModel = process.env.QUEST_MODEL;
 if (customModel && !findModel(customModel)) throw new Error(`Unknown test model: ${customModel}`);
 const artifacts = join(ROOT, 'artifacts', customModel ? customModel.replace(/[^a-z0-9-]/gi, '-') : '');
@@ -177,19 +180,38 @@ try {
     assert.equal(await page.eval('document.querySelectorAll("#journal .log-entry").length'),3);
     await page.click('#reset');
     assert.equal(await page.eval('QuestDemo.snapshot().game.turn'),0);
+    // Full-circuit opponents announce their moves; guarding a smash counters it.
+    for(const id of ['depart','quick','quick','advance','advance'])await page.click(`[data-action="${id}"]`);
+    assert.equal(await page.eval('QuestDemo.snapshot().game.enemy.name'),'Tin boar');
+    assert.equal(await page.eval('document.querySelector("#foe-intent").hidden'),false,'The announced move is shown');
+    assert.match(await page.eval('document.querySelector("#foe-intent").textContent'),/Smash.*12 dmg.*Charge/);
+    assert.match(await page.eval('document.querySelector("#foe-intent").className'),/kind-smash/);
+    assert.match(await page.eval('document.querySelector("#seen-text").textContent'),/about to SMASH/,'The hero is told the same move');
+    await page.click('[data-action="guard"]');
+    assert.equal(await page.eval('QuestDemo.snapshot().game.hp'),33,'Guard blocked 8 of the 12-damage charge after the rat\'s nibble');
+    assert.equal(await page.eval('QuestDemo.snapshot().game.enemy.hp'),8,'The guarded charge was countered for 10');
+    assert.match(await page.eval('document.querySelector("#last-move").textContent'),/Countered for 10/);
+    // The complexity meter reads the orders but never blocks them.
+    const typed = await page.eval('document.querySelector("#orders").value');
+    await page.eval(`(() => { const o = document.querySelector('#orders'); o.value = ${JSON.stringify('Collect all three stamps, defeat the champion, and submit at camp. When your health is LOW, drink a potion if one is available. Otherwise save potions. In every fight, use a heavy strike whenever it is available. Use a quick strike when heavy is unavailable. Guard when the enemy is about to smash, unless it is nearly dead. Outside fights, visit the medic, buy the buckler, or rest when offered. Otherwise continue.')}; o.dispatchEvent(new Event('input')); })()`);
+    assert.equal(await page.eval('document.querySelector("#complexity").dataset.level'),'complex');
+    assert.match(await page.eval('document.querySelector("#complexity-advice").textContent'),/no penalty/i);
+    await page.eval(`(() => { const o = document.querySelector('#orders'); o.value = ${JSON.stringify(typed)}; o.dispatchEvent(new Event('input')); })()`);
+    assert.equal(await page.eval('document.querySelector("#complexity").dataset.level'),'simple');
     // This policy only drives deterministic engine/UI verification. It is not an LLM substitute.
-    for (let i=0;i<38;i++) {
+    for (let i=0;i<40;i++) {
       const s = await page.eval('QuestDemo.snapshot().game');
       if (s.status==='won' || s.status==='lost') break;
       const action = await page.eval(`(() => {
         const s=QuestDemo.snapshot().game;
         const has=id=>Boolean(document.querySelector('[data-action="'+id+'"]'));
         if(has('potion')&&s.hp<=18)return 'potion';
-        if(has('medic'))return 'medic';
-        if(has('upgrade'))return 'upgrade';
-        if(s.enemy?.optional)return 'retreat';
-        if(s.enemy)return !s.enemy.agile&&has('heavy')?'heavy':'quick';
-        if(has('rest'))return 'rest';
+        if(s.enemy){
+          if(s.enemy.optional)return 'retreat';
+          const move=s.enemy.routine[s.enemy.step%s.enemy.routine.length];
+          return move.kind==='smash'?'guard':'quick';
+        }
+        for(const id of ['medic','buy_buckler','rest'])if(has(id))return id;
         return has('finish')?'finish':has('depart')?'depart':'advance';
       })()`);
       await page.click(`[data-action="${action}"]`);
@@ -199,6 +221,8 @@ try {
     assert.equal(result.game.log.every(entry=>entry.source==='manual'),true);
     assert.match(await page.eval('document.querySelector("#verdict").textContent'),/Assignment accepted/);
     assert.equal(await page.eval('document.querySelectorAll("#objective .goal.done").length'),5,'All five checklist steps are ticked');
+    assert.match(await page.eval('document.querySelector("#verdict").textContent'),/Commendations \d of 4/,'The verdict lists commendations');
+    assert.match(await page.eval('document.querySelector("#sword-value").textContent'),/buckler/i);
     await page.screenshot(join(artifacts,'victory.png'));
     await page.viewport(390,844,true);
     assert.equal(await page.eval('document.documentElement.scrollWidth > innerWidth'),false);
@@ -214,7 +238,16 @@ try {
     console.log(`Browser UI passed: desktop, 390px, 360px, potion costs, restart, complete victory in ${result.game.turn} turns.`);
     console.log('LLM-mode interface flow passed with a stub worker (no inference): load, thinking, stale reply, parse failure, edited orders, pause.');
   } else {
-    await page.click('[data-preset="careful"]');
+    // The test profile can be persistent (QUEST_PROFILE), so orders saved by an earlier run must not leak into this one.
+    const tutorialOrders = 'Fight the practice rat using quick strikes. After earning its training stamp, return to camp and submit the assignment.';
+    // A click straight after the viewport change can land before the layout settles, so retry until the preset applies.
+    for (let attempt = 0; attempt < 5; attempt++) {
+      await page.click('[data-preset="careful"]');
+      if (await page.eval(`document.querySelector("#orders").value === ${JSON.stringify(tutorialOrders)}`)) break;
+      await new Promise(done => setTimeout(done, 300));
+    }
+    assert.equal(await page.eval('QuestDemo.snapshot().game.level'),'tutorial','The model checks start on the introductory assignment');
+    assert.equal(await page.eval('document.querySelector("#orders").value'),tutorialOrders,'The careful example orders are in place');
     if(gpuTest) {
       if(!gpu)throw Error('WebGPU did not expose an adapter for the inference test.');
       await page.eval(`document.querySelector('#model').value=${JSON.stringify(customModel || (softwareGpu?'Qwen2.5-0.5B-Instruct-q4f32_1-MLC':'Qwen2.5-3B-Instruct-q4f32_1-MLC'))};document.querySelector('#model').dispatchEvent(new Event('change',{bubbles:true}));`);
@@ -238,6 +271,7 @@ try {
     await page.waitFor('!QuestDemo.snapshot().checkingDevice');
     assert.equal(await page.eval('QuestDemo.snapshot().modelReady'),true,'Rechecking must not unload a ready model');
     assert.equal(await page.eval('document.querySelector("#model").value'),loadedSelection);
+    assert.equal(await page.eval('document.querySelector("#orders").value'),tutorialOrders,'Loading and checking the model must not change the orders');
     // A forced departure is automatic; inference is reserved for real decisions.
     await page.click('#step');
     await page.waitFor('!QuestDemo.snapshot().thinking',190000);
@@ -282,7 +316,44 @@ try {
       assert.ok(fullResult.game.log.some(entry=>entry.source==='llm'));
       assert.equal(fullResult.game.log.some(entry=>entry.source==='manual'),false);
     }
-    await writeFile(join(artifacts,'llm-report.json'),JSON.stringify({kind:gpuTest?`real local WebLLM inference with ${softwareGpu?'software':'hardware'} WebGPU`:'real local Transformers.js inference with CPU WebAssembly',gpu,first,combat,reversed,fullResult,errors:page.errors,logs:page.logs},null,2));
+    let circuit;
+    if(circuitTrial) {
+      await page.click('[data-level="circuit"]');
+      await page.click('[data-preset="careful"]');
+      await page.click('#run');
+      const trialStart=Date.now();
+      let lastTurn=-1;
+      let snapshot;
+      while(Date.now()-trialStart<900000) {
+        snapshot=await page.eval('QuestDemo.snapshot()');
+        if(snapshot.lastDecision&&snapshot.game.level==='circuit')assert.equal(snapshot.lastDecision.ordersReceived,snapshot.orders,'Worker must receive the current player orders');
+        if(snapshot.game.turn!==lastTurn){const e=snapshot.game.log.at(-1);console.log(`Circuit LLM trial: turn ${snapshot.game.turn}, ${snapshot.game.hp} HP, ${snapshot.game.stamps.length} stamps, ${e?`${e.label} at ${e.at} (${e.source})`:'starting'}`);lastTurn=snapshot.game.turn;}
+        if(!snapshot.running&&!snapshot.thinking)break;
+        await sleep(500);
+      }
+      // Replay the log through the engine to recover what the hero was told before each model decision.
+      let replay=newGame('circuit');
+      const decisions=[];
+      for(const entry of snapshot.game.log){
+        const move=replay.enemy?nextMove(replay.enemy):null;
+        if(entry.source==='llm')decisions.push({turn:entry.turn,at:entry.at,move:move?.kind||null,hp:replay.hp,action:entry.action});
+        replay=applyAction(replay,entry.action,entry.source);
+      }
+      const count=(filter,action)=>`${decisions.filter(d=>filter(d)&&(!action||action(d))).length}`;
+      const summary={status:snapshot.game.status,turns:snapshot.game.turn,hp:snapshot.game.hp,potions:snapshot.game.potions,stamps:snapshot.game.stamps.length,champion:snapshot.game.champion,
+        smashGuarded:`${count(d=>d.move==='smash',d=>d.action==='guard')} of ${count(d=>d.move==='smash')}`,
+        guardedOrdinaryHits:`${count(d=>d.move==='strike',d=>d.action==='guard')} of ${count(d=>d.move==='strike')}`,
+        potionsAtLow:`${count(d=>d.hp<=18,d=>d.action==='potion')} of ${count(d=>d.hp<=18)}`,
+        optionalRetreated:`${count(d=>d.at==='Prize bruiser',d=>d.action==='retreat')} of ${count(d=>d.at==='Prize bruiser')}`,
+        llmDecisions:decisions.length, autoMoves:snapshot.game.log.filter(e=>e.source==='auto').length, manual:snapshot.game.log.filter(e=>e.source==='manual').length};
+      circuit={summary,decisions,orders:snapshot.orders,status:snapshot.status,model:loadedSelection};
+      await writeFile(join(artifacts,'llm-circuit-trial.json'),JSON.stringify({...circuit,snapshot},null,2));
+      await page.screenshot(join(artifacts,'llm-circuit-trial.png'));
+      console.log('Circuit LLM trial summary:',JSON.stringify(summary));
+      for(const d of decisions)console.log(`  turn ${String(d.turn).padStart(2)} ${d.at.padEnd(15)} ${(d.move||'-').padEnd(7)} ${String(d.hp).padStart(2)} HP -> ${d.action}`);
+      assert.equal(summary.manual,0,'No manual actions in a model-controlled trial');
+    }
+    await writeFile(join(artifacts,'llm-report.json'),JSON.stringify({kind:gpuTest?`real local WebLLM inference with ${softwareGpu?'software':'hardware'} WebGPU`:'real local Transformers.js inference with CPU WebAssembly',gpu,first,combat,reversed,fullResult,circuit,errors:page.errors,logs:page.logs},null,2));
     assert.equal(reversed.game.log[1].action,'retreat','Changed standing orders should change the combat choice');
     assert.notEqual(reversed.game.log[1].action,combat.game.log[1].action);
   }

@@ -31,7 +31,7 @@
         <h3>Assignments</h3>
         <ul>
           <li><strong>01 · First instructions:</strong> earn the practice rat’s stamp and submit at camp within 12 turns.</li>
-          <li><strong>02 · The full circuit:</strong> earn three stamps, beat the champion and submit at camp within 38 turns.</li>
+          <li><strong>02 · The full circuit:</strong> earn three stamps, beat the champion and submit at camp within 32 turns.</li>
           <li>Every action takes one turn. Model loading and thinking take none.</li>
           <li>Passing camp unfinished starts a new lap: opponents gain 3 HP and 1 damage.</li>
         </ul>
@@ -47,20 +47,39 @@
         </ul>
       </section>
       <section>
+        <h3>Reading the opponent <small>full circuit</small></h3>
+        <ul>
+          <li>Every opponent repeats a routine and <strong>announces its move</strong> before the hero acts.</li>
+          <li><strong>Strike:</strong> an ordinary hit. <strong>Smash:</strong> a big hit.</li>
+          <li><strong>Bracing:</strong> no hit this turn, and strikes deal half. <strong>Winded:</strong> no hit, and an agile enemy cannot dodge.</li>
+          <li><strong>Guard:</strong> deal nothing, block up to 8 damage, restore 1 stamina.</li>
+          <li><strong>Guarding a smash counters it:</strong> the enemy takes a heavy strike’s damage at once.</li>
+        </ul>
+      </section>
+      <section>
         <h3>Staying alive</h3>
         <ul>
           <li>The hero starts with 40 HP, 4 stamina and 2 potions.</li>
           <li><strong>Potion:</strong> restores up to 18 HP and takes a turn.</li>
           <li>Health is flagged <strong>LOW</strong> at 18 HP or less. The hero is told this.</li>
           <li><strong>Field medic:</strong> 12 HP, free, once per trial.</li>
-          <li><strong>Bench:</strong> full stamina, once per lap. Walking restores 1.</li>
+          <li><strong>Bench:</strong> full stamina and 6 HP, once per lap. Walking restores 1 stamina.</li>
         </ul>
       </section>
       <section>
-        <h3>Coins</h3>
+        <h3>Coins and gear</h3>
         <ul>
-          <li>The prize purse holds 6 coins. Wins pay 2; the champion pays 8.</li>
-          <li><strong>Armorer:</strong> 6 coins sharpens the sword for +2 damage on normal hits.</li>
+          <li>The prize purse holds 6 coins. Wins pay 2, the optional prize bruiser 6, the champion 8.</li>
+          <li><strong>Armorer:</strong> a sharper sword (+2 damage on every strike) or a buckler (guard blocks 6 more) for 8 coins each; a potion for 6. Each purchase takes a turn.</li>
+        </ul>
+      </section>
+      <section>
+        <h3>Commendations <small>optional</small></h3>
+        <ul>
+          <li><strong>Ahead of schedule:</strong> submit by turn 26.</li>
+          <li><strong>No expense claims:</strong> win without drinking a potion.</li>
+          <li><strong>Overtime:</strong> beat the optional prize bruiser too.</li>
+          <li><strong>By the book:</strong> never take a smash without guarding.</li>
         </ul>
       </section>
     </div>
@@ -92,7 +111,7 @@
           <article id="hero-card" class="fighter hero" aria-label="Hero status">
             <div class="portrait"><span class="portrait-fallback" aria-hidden="true">✦</span><img id="hero-art" src="./assets/art/hero.webp" alt="" onerror="this.hidden=true"><span id="hp-flag" class="flag" hidden>Low health</span></div>
             <div class="fighter-info">
-              <p class="kicker">Your hero <span id="lap-badge" class="lap" hidden>Lap 1</span></p>
+              <p class="kicker">Your sellsword <span id="lap-badge" class="lap" hidden>Lap 1</span></p>
               <div class="hp-line"><strong id="hp-value" class="hp-num">40</strong><span id="hp-max" class="hp-max">/ 40 HP</span></div>
               <div class="bar" aria-hidden="true"><div id="hp-bar"></div></div>
             </div>
@@ -100,7 +119,7 @@
               <div class="kit-stamina"><dt>Stamina</dt><dd id="stamina-value"></dd></div>
               <div><dt>Potions</dt><dd id="potion-value">2</dd></div>
               <div><dt>Coins</dt><dd id="coin-value">0</dd></div>
-              <div><dt>Sword</dt><dd id="sword-value">Plain</dd></div>
+              <div class="kit-gear"><dt>Gear</dt><dd id="sword-value">Basic</dd></div>
             </dl>
           </article>
           <article id="foe-card" class="fighter foe" aria-live="polite">
@@ -113,6 +132,7 @@
                 <div class="bar" aria-hidden="true"><div id="foe-bar"></div></div>
               </div>
               <ul id="foe-traits" class="traits"></ul>
+              <p id="foe-intent" class="intent" hidden></p>
             </div>
           </article>
         </div>
@@ -121,7 +141,7 @@
       </div>
 
       <div id="controls" class="controls">
-        <p id="run-status" class="run-status" role="status">Your hero is waiting for instructions.</p>
+        <p id="run-status" class="run-status" role="status">Your hero is waiting for instructions. Impatiently.</p>
         <progress id="cta-progress" max="1" value="0" hidden></progress>
         <div class="control-row">
           <button id="load-cta" class="primary">Load local model <span aria-hidden="true">↓</span></button>
@@ -158,6 +178,11 @@
         <label class="sr-only" for="orders">Standing orders</label>
         <textarea id="orders" maxlength="1800" spellcheck="false"></textarea>
         <div class="letter-signoff"><span>Regards,<br><strong>Guild management</strong></span><span id="word-count"></span></div>
+        <div id="complexity" class="complexity" data-level="simple" aria-live="polite">
+          <span class="meter" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
+          <span class="complexity-text"><strong id="complexity-label">Simple</strong> <span id="complexity-counts"></span></span>
+          <p id="complexity-advice" class="complexity-advice"></p>
+        </div>
         <p id="orders-notice" class="notice" hidden>Orders changed. The next run restarts the trial with the new text.</p>
         <div class="presets">
           <span class="section-label">Example orders</span>

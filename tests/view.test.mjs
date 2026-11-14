@@ -1,10 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { newGame, applyAction, availableActions, TILES, LOW_HP, observation } from '../src/game.js';
-import { objectiveSteps, sceneFor, deltas, lastMoveHtml, journalHtml, verdictFor, actionTally, TILE_ART } from '../src/view.js';
+import { newGame, applyAction, availableActions, TILES, LOW_HP, observation, nextMove, strikeDamage, commendations, PRESETS, TUTORIAL_PRESETS } from '../src/game.js';
+import { objectiveSteps, sceneFor, deltas, lastMoveHtml, journalHtml, verdictFor, verdictHtml, actionTally, ordersComplexity, TILE_ART } from '../src/view.js';
 import { renderMap, mapLayout } from '../src/map.js';
 
 const play = (state, ...ids) => ids.reduce((s, id) => applyAction(s, id), state);
+/** Walks onto stop `index` of the circuit from the stop before it, so the opponent there steps out with its real routine. */
+const meet = (index, extra = {}) => applyAction({ ...newGame('circuit'), status: 'active', position: index - 1, ...extra }, 'advance');
 const tutorialWin = () => play(newGame('tutorial'), 'depart', 'quick', 'quick', 'advance', 'advance', 'finish');
 function tutorialRetreats() {
   let s = newGame('tutorial');
@@ -33,7 +35,9 @@ test('the stage card reports the opponent exactly as the engine holds it', () =>
   let scene = sceneFor(s);
   assert.equal(scene.name, 'Practice rat');
   assert.deepEqual(scene.enemy, { hp: 10, maxHp: 10 });
-  assert.equal(scene.traits[0].label, 'Hits for 3');
+  assert.deepEqual([scene.intent.tag, scene.intent.name, scene.intent.damage], ['Strike', 'Nibble', 3]);
+  assert.equal(sceneFor(play(newGame('tutorial'), 'depart')).traits[0].label, 'Hits for 3', 'the tutorial rat announces nothing');
+  assert.equal(sceneFor(play(newGame('tutorial'), 'depart')).intent, null);
   s = play(s, 'quick');
   assert.deepEqual(sceneFor(s).enemy, { hp: 4, maxHp: 10 });
   s = play(s, 'quick');
@@ -42,6 +46,8 @@ test('the stage card reports the opponent exactly as the engine holds it', () =>
   scene = sceneFor(s);
   assert.equal(scene.name, 'Tin boar');
   assert.ok(scene.traits.some(trait => trait.label === 'Armor 2'));
+  assert.deepEqual([scene.intent.tag, scene.intent.damage], ['Smash', 12]);
+  assert.match(scene.intent.note, /blocks 8 of it and counters for 10/);
   assert.equal(sceneFor(play(s, 'retreat')).mark, 'Left behind');
 });
 test('agile opponents and services describe their real effect', () => {
@@ -124,7 +130,7 @@ test('rulebook: strikes, stamina, armor and retaliation', () => {
 });
 test('rulebook: starting kit, potions, the LOW flag, medic, bench, purse and armorer', () => {
   const fresh = newGame('circuit');
-  assert.deepEqual([fresh.hp, fresh.stamina, fresh.potions, fresh.turnLimit], [40, 4, 2, 38]);
+  assert.deepEqual([fresh.hp, fresh.stamina, fresh.potions, fresh.turnLimit], [40, 4, 2, 32]);
   assert.equal(newGame('tutorial').turnLimit, 12);
   assert.equal(LOW_HP, 18);
   const hurt = { ...newGame('circuit'), status: 'active', position: 2, hp: 18 };
@@ -137,28 +143,90 @@ test('rulebook: starting kit, potions, the LOW flag, medic, bench, purse and arm
   assert.equal(availableActions(treated).some(a => a.id === 'medic'), false, 'once per trial');
   const walking = { ...newGame('circuit'), status: 'active', position: 2, stamina: 1 };
   assert.equal(play(walking, 'advance').stamina, 2, 'walking restores 1 stamina');
-  const atBench = { ...walking, position: 9 };
+  const atBench = { ...walking, position: 9, hp: 30 };
   const rested = play(atBench, 'rest');
-  assert.equal(rested.stamina, 4);
+  assert.deepEqual([rested.stamina, rested.hp], [4, 36], 'the bench restores full stamina and 6 HP');
   assert.equal(availableActions({ ...rested, stamina: 1 }).some(a => a.id === 'rest'), false, 'once per lap');
   const beforePurse = { ...newGame('circuit'), status: 'active', position: 3 };
   const paid = play(beforePurse, 'advance');
   assert.equal(paid.coins, 6, 'the purse holds 6 coins');
-  const atShop = { ...paid, position: 8 };
-  const sharp = play(atShop, 'upgrade');
-  assert.deepEqual([sharp.coins, sharp.sword], [0, 2]);
+  const atShop = { ...paid, position: 8, coins: 16 };
+  const sharp = play(atShop, 'buy_sword');
+  assert.deepEqual([sharp.coins, sharp.sword, sharp.turn], [8, 2, atShop.turn + 1], 'a sword costs 8 and takes a turn');
   const armed = play({ ...newGame('circuit'), sword: 2 }, 'depart', 'quick');
   assert.equal(armed.enemy.hp, 10 - 8, 'a sharpened sword adds 2 damage');
-  assert.equal(availableActions({ ...atShop, coins: 5 }).some(a => a.id === 'upgrade'), false, 'the sword costs 6 coins');
+  const shielded = play(sharp, 'buy_buckler');
+  assert.deepEqual([shielded.coins, shielded.buckler], [0, 6], 'a buckler costs 8');
+  assert.equal(play(meet(3, { buckler: 6 }), 'guard').hp, 40, 'with a buckler, guard blocks 14: the whole 12-damage charge');
+  const stocked = play({ ...paid, position: 8, coins: 6 }, 'buy_potion');
+  assert.deepEqual([stocked.coins, stocked.potions], [0, 3], 'a potion costs 6');
+  const broke = { ...atShop, coins: 7 };
+  assert.deepEqual(availableActions(broke).map(a => a.id).filter(id => id.startsWith('buy_')), ['buy_potion'], 'sword and buckler cost 8');
 });
 test('rulebook: prize money, the champion, and stronger opponents on later laps', () => {
   const rat = play(newGame('circuit'), 'depart', 'heavy');
   assert.equal(rat.coins, 2, 'a win pays 2 coins');
-  const champion = { ...newGame('circuit'), status: 'active', position: 10, enemy: { name: 'Arena champion', hp: 1, maxHp: 32, damage: 9, armor: 1, agile: false, stamp: null, optional: false, boss: true } };
-  const beaten = play(champion, 'quick');
+  const bruiser = meet(5, { stamina: 3 });
+  const pocketed = play({ ...bruiser, enemy: { ...bruiser.enemy, hp: 1 } }, 'quick');
+  assert.equal(pocketed.coins, 6, 'the optional prize bruiser pays 6');
+  const champion = meet(10);
+  const beaten = play({ ...champion, enemy: { ...champion.enemy, hp: 1 } }, 'quick');
   assert.equal(beaten.coins, 8, 'the champion pays 8');
   assert.equal(beaten.champion, true);
   const secondLap = play({ ...newGame('circuit'), status: 'active', position: 11, turn: 5 }, 'advance', 'advance');
   assert.equal(secondLap.lap, 2);
-  assert.deepEqual([secondLap.enemy.hp, secondLap.enemy.damage], [13, 4], 'lap 2 adds 3 HP and 1 damage');
+  assert.deepEqual([secondLap.enemy.hp, nextMove(secondLap.enemy).damage], [13, 4], 'lap 2 adds 3 HP and 1 damage');
+});
+test('rulebook: reading the opponent in the full circuit', () => {
+  // Every circuit opponent announces its move before the hero acts, and repeats its routine.
+  for (const index of [1, 3, 5, 7, 10]) {
+    const s = meet(index);
+    assert.ok(observation(s).enemy.nextMove, TILES[index].name);
+    assert.ok(availableActions(s).some(a => a.id === 'guard'), 'guard is offered in circuit fights');
+  }
+  // Strike: an ordinary hit. Smash: a big hit.
+  assert.equal(play(meet(1), 'quick').hp, 37, 'a strike hits for its damage');
+  assert.equal(play(meet(3), 'quick').hp, 28, 'a smash hits for its damage');
+  // Bracing: no hit, strikes deal half.
+  const bracing = play(meet(10), 'guard');
+  assert.equal(nextMove(bracing.enemy).kind, 'brace');
+  assert.equal(play(bracing, 'heavy').hp, bracing.hp, 'no hit while bracing');
+  assert.equal(strikeDamage(bracing, 'heavy'), Math.floor((12 - 1) / 2), 'bracing halves a strike');
+  // Winded: no hit, and an agile enemy cannot dodge.
+  const winded = play(meet(7), 'guard', 'guard');
+  assert.equal(nextMove(winded.enemy).kind, 'winded');
+  assert.equal(play(winded, 'quick').hp, winded.hp, 'no hit while winded');
+  assert.equal(strikeDamage(winded, 'heavy'), 12);
+  assert.equal(strikeDamage(play(meet(7), 'guard'), 'heavy'), 3, 'otherwise the agile Quickfoot dodges');
+  // Guard: deals nothing, blocks up to 8, restores 1 stamina.
+  const blocked = play(meet(7, { stamina: 1 }), 'guard');
+  assert.deepEqual([blocked.enemy.hp, blocked.hp, blocked.stamina], [16, 40, 3]);
+  // Guarding a smash counters it: the enemy takes a heavy strike's damage at once.
+  const countered = play(meet(3), 'guard');
+  assert.deepEqual([countered.hp, countered.enemy.hp], [40 - 4, 18 - (12 - 2)]);
+  // The introductory assignment has neither.
+  const tutorial = play(newGame('tutorial'), 'depart');
+  assert.equal(availableActions(tutorial).some(a => a.id === 'guard'), false);
+});
+test('rulebook: commendations', () => {
+  const won = { ...newGame('circuit'), status: 'won', turn: 26, drank: 0, prizeWon: true, bigHitsTaken: 0 };
+  assert.ok(commendations(won).every(c => c.earned));
+  const late = commendations({ ...won, turn: 27, drank: 1, prizeWon: false, bigHitsTaken: 1 });
+  assert.ok(late.every(c => !c.earned), 'turn 26, no potion drunk, the bruiser beaten, no unguarded smash');
+  assert.equal(play(meet(3), 'quick').bigHitsTaken, 1);
+  assert.equal(play(meet(3), 'guard').bigHitsTaken, 0);
+  const html = verdictHtml(verdictFor(won));
+  assert.match(html, /Commendations 4 of 4/);
+});
+test('the complexity meter rates orders without changing them, and the examples stay simple', () => {
+  for (const orders of [...Object.values(PRESETS), ...Object.values(TUTORIAL_PRESETS)]) assert.equal(ordersComplexity(orders).level, 'simple', orders);
+  const empty = ordersComplexity('   ');
+  assert.deepEqual([empty.words, empty.instructions, empty.segments, empty.level], [0, 0, 0, 'simple']);
+  const tangled = 'Collect all three stamps, defeat the champion, and submit the assignment at camp.\nYour highest priority: when your health status is LOW, drink a potion if one is available. Otherwise save potions.\nIn every fight, use a heavy strike whenever it is available. Use a quick strike when heavy is unavailable. Never retreat.\nOutside fights, visit the medic, buy the sword, or rest when offered. Otherwise continue along the circuit.';
+  const rated = ordersComplexity(tangled);
+  assert.equal(rated.level, 'complex');
+  assert.equal(rated.segments, 5);
+  assert.match(rated.advice, /no penalty/i);
+  assert.ok(rated.conditions >= 6);
+  assert.equal(ordersComplexity('Guard smashes. Otherwise strike. Drink when LOW. Skip the bruiser. Buy a buckler. Rest at the bench when tired.').level, 'moderate');
 });

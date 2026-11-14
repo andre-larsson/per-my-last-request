@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parent.parent
 RAW = ROOT / 'assets-src' / 'raw'
 OUT = ROOT / 'assets' / 'art'
 SIZE = 384
-PICKS = {'hero': 'hero-a', 'champion': 'champion-a'}
+PICKS = {'hero': 'hero-e', 'champion': 'champion-a'}
 NAMES = ['hero', 'camp', 'rat', 'noticeboard', 'boar', 'purse', 'bruiser', 'medic', 'quickfoot', 'armorer', 'bench', 'champion', 'road']
 
 OUT.mkdir(parents=True, exist_ok=True)

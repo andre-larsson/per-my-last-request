@@ -1,6 +1,6 @@
 // Pure presentation helpers. They read game state and return plain data or HTML strings.
 // Rules and outcomes stay in game.js; nothing here changes a game.
-import { TILES, currentTile, assignmentReady } from './game.js';
+import { TILES, currentTile, assignmentReady, nextMove, guardBlock, counterDamage, commendations, PRICES, SWORD_BONUS, BUCKLER_BLOCK, BENCH_HP, MEDIC_HP } from './game.js';
 
 export const escapeHtml = value => String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -23,6 +23,18 @@ export function objectiveSteps(game) {
   return steps.map(step => ({ ...step, next: step === next }));
 }
 
+/** The opponent's announced move this turn, in the words the hero is told. */
+export function intentFor(game) {
+  const e = game.enemy;
+  const m = nextMove(e);
+  if (!m) return null;
+  const block = guardBlock(game);
+  if (m.kind === 'smash') return { kind: m.kind, tag: 'Smash', name: m.name, damage: m.damage, note: `Guard blocks ${Math.min(block, m.damage)} of it and counters for ${counterDamage(game)}.` };
+  if (m.kind === 'brace') return { kind: m.kind, tag: 'Bracing', name: m.name, damage: 0, note: 'No damage this turn. Strikes deal half.' };
+  if (m.kind === 'winded') return { kind: m.kind, tag: 'Winded', name: m.name, damage: 0, note: e.agile ? 'No damage this turn, and it cannot dodge a heavy strike.' : 'No damage this turn. A free swing, or a safe moment for a potion.' };
+  return { kind: m.kind, tag: 'Strike', name: m.name, damage: m.damage, note: `An ordinary hit. Guard would block ${Math.min(block, m.damage)}.` };
+}
+
 /** What the right-hand stage card shows: an opponent, or the place the hero is standing. */
 export function sceneFor(game) {
   const tile = currentTile(game);
@@ -30,17 +42,20 @@ export function sceneFor(game) {
   const base = { art, name: tile.name, enemy: null, traits: [], mark: '' };
   if (game.enemy) {
     const e = game.enemy;
-    const traits = [{ label: `Hits for ${e.damage}`, note: 'after each strike or potion' }];
+    // The introductory assignment has no announced moves: its rat simply hits back.
+    const announced = game.level !== 'tutorial';
+    const traits = announced ? [] : [{ label: `Hits for ${e.damage}`, note: 'after each strike or potion' }];
     if (e.armor) traits.push({ label: `Armor ${e.armor}`, note: `blocks ${e.armor} from every strike` });
-    if (e.agile) traits.push({ label: 'Agile', note: 'a heavy strike deals only 3' });
+    if (e.agile) traits.push({ label: 'Agile', note: announced ? 'a heavy strike deals only 3, unless it is winded' : 'a heavy strike deals only 3' });
     return {
       ...base,
       name: e.name,
       kicker: e.boss ? 'The champion' : e.optional ? 'Optional prize fight' : 'Stamp fight',
       enemy: { hp: e.hp, maxHp: e.maxHp ?? e.hp },
       traits,
+      intent: announced ? intentFor(game) : null,
       text: e.boss ? 'Defeat the champion, then get back to camp. Retreating costs 2 HP and leaves the champion standing.'
-        : e.optional ? 'Not required. Winning pays 2 coins; retreating costs 2 HP.'
+        : e.optional ? `Not required. Winning pays ${e.prize ?? 2} coins; retreating costs 2 HP.`
         : 'Defeat it to earn a required stamp. Retreating costs 2 HP and earns nothing.',
     };
   }
@@ -52,13 +67,20 @@ export function sceneFor(game) {
     const text = assignmentReady(game) ? 'Every requirement is met. All that remains is to submit the assignment.'
       : game.turn > 0 ? 'Back at camp with the assignment unfinished. Another lap is possible, but every opponent grows stronger.'
       : game.level === 'tutorial' ? 'First assignment: defeat the practice rat for its stamp, then return here and submit, all within 12 turns.'
-      : 'Three stamps, one champion and a safe return within 38 turns. The hero carries two potions. The plan is entirely your department.';
+      : `Three stamps, one champion and a safe return within ${game.turnLimit} turns. Every opponent announces its next move. The hero carries two potions and no enthusiasm.`;
     return { ...base, kicker: 'Start and finish', text };
   }
-  if (tile.kind === 'medic') return { ...base, kicker: 'Service', traits: game.medicUsed ? [] : [{ label: '+12 HP', note: 'free, once per trial, takes a turn' }], text: game.medicUsed ? 'The medic has already treated the hero this trial.' : 'One free treatment. Walking past saves a turn.' };
-  if (tile.kind === 'shop') return { ...base, kicker: 'Service', traits: game.sword ? [] : [{ label: '6 coins', note: 'sword deals +2 damage, takes a turn' }], text: game.sword ? 'The sword is already sharpened.' : game.coins >= 6 ? 'The hero can afford a sharper sword.' : `A sharper sword costs 6 coins. The hero has ${game.coins}.` };
-  if (tile.kind === 'bench') return { ...base, kicker: 'Rest stop', traits: game.benchUsed ? [] : [{ label: 'Full stamina', note: 'once per lap, takes a turn' }], text: game.benchUsed ? 'The hero has already rested here this lap.' : 'A place to catch a breath before the champion.' };
-  if (tile.kind === 'purse') return { ...base, kicker: 'Payday', text: 'Six guild coins, collected on arrival. The armorer further along sells a sharper sword for exactly that.' };
+  if (tile.kind === 'medic') return { ...base, kicker: 'Service', traits: game.medicUsed ? [] : [{ label: `+${MEDIC_HP} HP`, note: 'free, once per trial, takes a turn' }], text: game.medicUsed ? 'The medic has already treated the hero this trial.' : 'One free treatment. Walking past saves a turn.' };
+  if (tile.kind === 'shop') {
+    const stock = [];
+    if (!game.sword) stock.push({ label: `Sword · ${PRICES.sword} coins`, note: `+${SWORD_BONUS} damage on every strike` });
+    if (!game.buckler) stock.push({ label: `Buckler · ${PRICES.buckler} coins`, note: `guard blocks ${BUCKLER_BLOCK} more` });
+    stock.push({ label: `Potion · ${PRICES.potion} coins`, note: 'one more potion' });
+    const cheapest = Math.min(...stock.map(item => Number(item.label.match(/\d+/)[0])));
+    return { ...base, kicker: 'Service', traits: stock, text: `${game.coins >= cheapest ? `The hero has ${game.coins} coins to spend.` : `The hero has ${game.coins} coins, not enough for anything here.`} Each purchase takes a turn.` };
+  }
+  if (tile.kind === 'bench') return { ...base, kicker: 'Rest stop', traits: game.benchUsed ? [] : [{ label: `Full stamina, +${BENCH_HP} HP`, note: 'once per lap, takes a turn' }], text: game.benchUsed ? 'The hero has already rested here this lap.' : 'A place to catch a breath before the champion.' };
+  if (tile.kind === 'purse') return { ...base, kicker: 'Payday', text: `Six guild coins, collected on arrival. The armorer further along sells a sword or a buckler for ${PRICES.sword}, and potions for ${PRICES.potion}. The prize bruiser next door pays well.` };
   if (tile.kind === 'enemy') return { ...base, kicker: 'Empty arena', text: 'The champion is already beaten. Nothing left to fight here.' };
   return { ...base, kicker: 'On the road', text: 'The path continues. Walking takes a turn and restores 1 stamina.' };
 }
@@ -110,7 +132,12 @@ export function verdictFor(game) {
   if (game.status !== 'won' && game.status !== 'lost') return null;
   const tally = actionTally(game.log);
   if (game.status === 'won') {
-    return { tone: 'won', stamp: 'Accepted', title: 'Assignment accepted.', text: `Home in ${plural(game.turn, 'turn')} with ${game.hp} HP and ${plural(game.potions, 'potion')} to spare. The guild is reluctantly impressed.`, hint: game.level === 'tutorial' ? 'Next: the full circuit, where the orders need to cover a lot more.' : 'Now try it with shorter orders.', tally };
+    const medals = commendations(game);
+    const missed = medals.filter(m => !m.earned);
+    const hint = game.level === 'tutorial' ? 'Next: the full circuit, where opponents announce their moves and the orders need to cover a lot more.'
+      : !missed.length ? 'Every commendation in one trial. The guild suspects paperwork fraud.'
+      : `Different orders earn different commendations. Still unclaimed: ${missed.map(m => `${m.label} (${m.rule.replace(/\.$/, '').toLowerCase()})`).join('; ')}.`;
+    return { tone: 'won', stamp: 'Accepted', title: 'Assignment accepted.', text: `Home in ${plural(game.turn, 'turn')} with ${game.hp} HP and ${plural(game.potions, 'potion')} to spare. The hero would like to discuss the fee.`, hint, tally, commendations: medals };
   }
   const missing = [];
   const target = stampTarget(game);
@@ -123,12 +150,36 @@ export function verdictFor(game) {
     stamp: dead ? 'Incident' : 'Overdue',
     title: dead ? 'A preventable workplace incident.' : 'The guild has closed for the day.',
     text: dead ? `The hero ran out of health on turn ${game.turn}, at ${currentTile(game).name}. ${missing.join(', ')}.` : `All ${game.turnLimit} turns used: ${missing.join(', ')}.`,
-    hint: 'The hero did what the orders said. Change one instruction and run again.',
+    hint: 'The hero did exactly what the orders said, and would like that noted. Change one instruction and run again.',
     tally,
+    commendations: [],
   };
 }
 export function verdictHtml(verdict) {
   if (!verdict) return '';
   const tally = verdict.tally.slice(0, 4).map(t => `<span class="chip quiet">${escapeHtml(t.label)} ×${t.count}</span>`).join('');
-  return `<span class="rubber ${verdict.tone}" aria-hidden="true">${escapeHtml(verdict.stamp)}</span><div class="verdict-body"><h3>${escapeHtml(verdict.title)}</h3><p>${escapeHtml(verdict.text)}</p><p class="chips">${tally}</p><p class="verdict-hint">${escapeHtml(verdict.hint)}</p></div>`;
+  const medals = verdict.commendations?.length
+    ? `<p class="commendations"><span class="section-label">Commendations ${verdict.commendations.filter(m => m.earned).length} of ${verdict.commendations.length}</span>${verdict.commendations.map(m => `<span class="medal${m.earned ? ' earned' : ''}"><span aria-hidden="true">${m.earned ? '★' : '☆'}</span> ${escapeHtml(m.label)}<span class="sr-only">${m.earned ? ' (earned)' : ' (not earned)'}</span></span>`).join('')}</p>` : '';
+  return `<span class="rubber ${verdict.tone}" aria-hidden="true">${escapeHtml(verdict.stamp)}</span><div class="verdict-body"><h3>${escapeHtml(verdict.title)}</h3><p>${escapeHtml(verdict.text)}</p>${medals}<p class="chips">${tally}</p><p class="verdict-hint">${escapeHtml(verdict.hint)}</p></div>`;
+}
+
+// Words that turn an instruction into a condition or a branch. Each one is another thing a small model must track.
+const CONDITION_WORDS = /\b(if|when|whenever|unless|until|while|after|before|otherwise|except|instead|only|preferably|but)\b/gi;
+/**
+ * How demanding the orders are for a small local model. A reading aid only: it never changes how a trial is played.
+ * Instructions are sentences or lines; conditions are branching words such as "when" or "otherwise".
+ */
+export function ordersComplexity(text) {
+  const clean = String(text || '').trim();
+  const words = clean ? clean.split(/\s+/).length : 0;
+  const instructions = clean.split(/[.!?;\n]+/).filter(part => part.trim().split(/\s+/).filter(Boolean).length >= 2).length;
+  const conditions = (clean.match(CONDITION_WORDS) || []).length;
+  const score = instructions + conditions + Math.floor(words / 40);
+  const level = score <= 7 ? 'simple' : score <= 11 ? 'moderate' : 'complex';
+  const advice = {
+    simple: 'Short and plain. Small models follow orders like these best.',
+    moderate: 'Manageable. Small models sometimes drop a rule or two at this length.',
+    complex: 'Small local models may lose track of this many rules and conditions. There is no penalty; expect the hero to miss some of them.',
+  }[level];
+  return { words, instructions, conditions, score, level, label: level[0].toUpperCase() + level.slice(1), segments: Math.min(5, Math.max(words ? 1 : 0, Math.ceil(score / 3))), advice };
 }

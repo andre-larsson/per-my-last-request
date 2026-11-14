@@ -2,6 +2,17 @@
 
 Original prototype checks on 2026-11-13, with model-selection checks added on 2026-11-14. This file distinguishes game-rule checks, browser UI checks, and genuine model inference.
 
+## Battle rework (2026-11-14)
+
+The full circuit's battle rules changed (previous rules: git tag `balance-before`). Details and balance numbers are in `GAME_NOTES.md`.
+
+- `npm test` passed **45 tests**. New ones cover announced routines, guard and counter (including a counter that wins a fight), brace, the prompt checklist, the armorer's stock, commendations, the complexity meter, and every new Rulebook rule. One test pins the introductory assignment's exact prompt text.
+- The introductory assignment is unchanged. A script walked all 2403 reachable tutorial states under the old and new engine and protocol: actions, outcomes, log text and prompts were identical.
+- `npm run test:browser` passed (desktop, 390 px, 360 px; a manual circuit victory in 32 turns using guard, the buckler and the bench; the stub-worker LLM-mode flow). `node tools/shots.mjs` captured all states at three sizes with no text under 12 px and no browser errors.
+- **Real inference, introductory assignment: re-verified.** `npm run test:llm -- --full` with Qwen 2.5 3B on hardware WebGPU won in 6 turns with 37 HP; every choice after the forced departure came from the model, and the retreat orders still produced `retreat`.
+- **Real inference, full circuit: one model-controlled victory.** `npm run test:llm -- --circuit` with Qwen 2.5 3B and the careful example orders ("Quick strike every turn, except: guard against a SMASH, drink a potion when health is LOW, and retreat from the optional prize fight.") won with **1 HP, 3 stamps, on turn 32 of 32**. The model made all 26 decisions that had more than one option; 6 single-option moves were taken automatically, as the game always does; no manual or scripted choices. The win is narrow and the play imperfect: 2 of 4 smashes guarded, both potions drunk outside fights. Earlier runs on the way to the final rules lost (one guard loop on an older example; two deaths at the champion about 2 HP short, before the champion went from 32 to 30 HP). This is one run on one machine, not evidence that the circuit is reliably winnable by the model.
+- `node tools/probe.mjs` (13 fixed situations, same model and orders): 11 of 13 as intended. Misses: it fights the optional bruiser instead of retreating, and strikes instead of drinking at LOW health mid-fight.
+
 ## Interface redesign (2026-11-14)
 
 The interface was rebuilt on 2026-11-14 (previous version: git tag `ui-before-redesign`). Sections below this one describe checks made against the earlier interface; their engine, protocol and model findings still apply, but their screenshots show the old layout.

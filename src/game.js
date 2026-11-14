@@ -1,56 +1,126 @@
-export const MAX_TURNS = 38;
+// All rules, resources, observations and legal actions. Deterministic: no randomness, a fixed course.
+// The introductory assignment uses the original, simpler rules: no guard, no visible enemy routines.
+export const MAX_TURNS = 32;
 // At or below this health the hero is told its status is LOW. The interface flags the same threshold.
 export const LOW_HP = 18;
+export const POTION_HP = 18;
+export const MEDIC_HP = 12;
+export const BENCH_HP = 6;
+export const GUARD_BLOCK = 8;
+export const BUCKLER_BLOCK = 6;
+export const SWORD_BONUS = 2;
+export const PRICES = { sword: 8, buckler: 8, potion: 6 };
+
 export const PRESETS = {
-  reckless: 'Fight every opponent. Use quick attacks. Drink a potion whenever any health is missing. Buy upgrades when possible. Keep going until the champion is defeated, then return to camp.',
-  careful: 'Collect all three stamps, defeat the champion, and submit the assignment at camp.\nYour highest priority: when your health status is LOW, drink a potion if one is available. Otherwise save potions.\nIn every fight, use a heavy strike whenever it is available. Use a quick strike when heavy is unavailable. Never retreat.\nOutside fights, visit the medic, buy the sword upgrade, or rest when offered. Otherwise continue along the circuit.',
+  reckless: 'Fight every opponent. Use heavy strikes. Drink a potion whenever any health is missing. Buy whatever the armorer sells. Keep going until the champion is defeated, then return to camp.',
+  careful: 'Quick strike every turn, except: guard against a SMASH, drink a potion when health is LOW, and retreat from the optional prize fight.',
 };
 export const TUTORIAL_PRESETS = {
   reckless: 'Always retreat from every enemy. Leave every fight immediately. Never attack.',
   careful: 'Fight the practice rat using quick strikes. After earning its training stamp, return to camp and submit the assignment.',
 };
+
+// What an opponent does on its turn. Each circuit opponent repeats a fixed routine, and its move is announced before the hero acts.
+//   strike: an ordinary hit.  smash: a big hit; guarding it blocks part of it and counters for heavy-strike damage.
+//   brace: no damage; the hero's strikes deal half.  winded: no damage, and an agile opponent cannot dodge.
+export const MOVE_KINDS = {
+  strike: { hits: true, summary: 'an ordinary hit' },
+  smash: { hits: true, summary: 'a big hit; guarding it counters' },
+  brace: { hits: false, summary: 'no damage; your strikes deal half' },
+  winded: { hits: false, summary: 'no damage; it cannot dodge' },
+};
+const move = (kind, name, damage = 0) => ({ kind, name, damage });
+
 export const TILES = [
   { name: 'Guild camp', kind: 'camp', short: 'CAMP' },
-  { name: 'Practice rat', kind: 'enemy', stamp: 'rat', hp: 10, damage: 3, armor: 0, short: 'PRACTICE' },
+  { name: 'Practice rat', kind: 'enemy', stamp: 'rat', hp: 10, damage: 3, armor: 0, short: 'PRACTICE', routine: [move('strike', 'Nibble', 3)] },
   { name: 'The noticeboard', kind: 'road', short: 'NOTICES' },
-  { name: 'Tin boar', kind: 'enemy', stamp: 'boar', hp: 18, damage: 5, armor: 2, short: 'ARMOR' },
+  { name: 'Tin boar', kind: 'enemy', stamp: 'boar', hp: 18, damage: 4, armor: 2, short: 'ARMOR', routine: [move('smash', 'Charge', 12), move('strike', 'Gore', 4)] },
   { name: 'Prize purse', kind: 'purse', short: 'PAYDAY' },
-  { name: 'Prize bruiser', kind: 'enemy', optional: true, hp: 14, damage: 5, armor: 0, short: 'SIDE BET' },
+  { name: 'Prize bruiser', kind: 'enemy', optional: true, prize: 6, hp: 20, damage: 5, armor: 0, short: 'SIDE BET', routine: [move('strike', 'Jab', 5), move('smash', 'Haymaker', 14), move('winded', 'Showboat')] },
   { name: 'Field medic', kind: 'medic', short: 'MEDIC' },
-  { name: 'Quickfoot', kind: 'enemy', stamp: 'quickfoot', hp: 16, damage: 5, armor: 0, agile: true, short: 'AGILITY' },
+  { name: 'Quickfoot', kind: 'enemy', stamp: 'quickfoot', hp: 16, damage: 5, armor: 0, agile: true, short: 'AGILITY', routine: [move('strike', 'Dart', 5), move('strike', 'Dart', 5), move('winded', 'Out of breath')] },
   { name: 'Guild armorer', kind: 'shop', short: 'ARMORER' },
   { name: 'A place to sit', kind: 'bench', short: 'REST' },
-  { name: 'Arena champion', kind: 'enemy', boss: true, hp: 32, damage: 9, armor: 1, short: 'CHAMPION' },
+  { name: 'Arena champion', kind: 'enemy', boss: true, prize: 8, hp: 30, damage: 7, armor: 1, short: 'CHAMPION', routine: [move('strike', 'Jab', 7), move('brace', 'Raise shield'), move('smash', 'Overhead smash', 18), move('winded', 'Catch breath')] },
   { name: 'Home stretch', kind: 'road', short: 'HOME' },
 ];
 
 export function newGame(level = 'tutorial') {
-  return { level, turnLimit: level === 'tutorial' ? 12 : MAX_TURNS, revision: 0, turn: 0, position: 0, lap: 1, hp: 40, maxHp: 40, stamina: 4, potions: 2, coins: 0, sword: 0, stamps: [], champion: false, medicUsed: false, purseTaken: false, benchUsed: false, enemy: null, resolved: false, status: 'ready', log: [] };
+  return { level, turnLimit: level === 'tutorial' ? 12 : MAX_TURNS, revision: 0, turn: 0, position: 0, lap: 1, hp: 40, maxHp: 40, stamina: 4, potions: 2, coins: 0, sword: 0, buckler: 0, stamps: [], champion: false, prizeWon: false, drank: 0, bigHitsTaken: 0, medicUsed: false, purseTaken: false, benchUsed: false, enemy: null, resolved: false, status: 'ready', log: [] };
 }
 export function assignmentReady(s) { return s.level === 'tutorial' ? s.stamps.includes('rat') : s.champion && s.stamps.length === 3; }
-
 export function currentTile(s) { return TILES[s.position]; }
+
+/** The opponent's move this turn, or null outside a fight. The tutorial rat has a plain, unannounced routine. */
+export function nextMove(enemy) {
+  if (!enemy) return null;
+  // An opponent built without a routine (an older saved state, a hand-made test) simply strikes.
+  if (!enemy.routine?.length) return { kind: 'strike', name: 'Strike', damage: enemy.damage };
+  return enemy.routine[(enemy.step || 0) % enemy.routine.length];
+}
+const announced = s => s.level !== 'tutorial';
+
+/** Damage a strike would deal this turn, given the opponent's armor, agility and current move. */
+export function strikeDamage(s, style) {
+  const e = s.enemy;
+  const m = nextMove(e);
+  const heavy = style === 'heavy';
+  let damage = heavy && e.agile && m.kind !== 'winded' ? 3 : Math.max(1, (heavy ? 12 : 6) + s.sword - e.armor);
+  if (m.kind === 'brace') damage = Math.max(1, Math.floor(damage / 2));
+  return damage;
+}
+/** Damage the opponent deals at the end of this turn, before any guard. */
+const incoming = e => { const m = nextMove(e); return MOVE_KINDS[m.kind].hits ? m.damage : 0; };
+export const guardBlock = s => GUARD_BLOCK + s.buckler;
+/** Damage of the automatic counter after a guarded smash: what a heavy strike would deal, ignoring agility. */
+export const counterDamage = s => Math.max(1, 12 + s.sword - s.enemy.armor);
+
+function answerText(s, guarding = false) {
+  const e = s.enemy;
+  const m = nextMove(e);
+  if (!announced(s)) return 'Enemy retaliates if still alive.';
+  if (!MOVE_KINDS[m.kind].hits) return guarding ? `${e.name} is not attacking this turn, so there is nothing to block.` : `${e.name} is not attacking this turn.`;
+  const taken = guarding ? Math.max(0, m.damage - guardBlock(s)) : m.damage;
+  if (!guarding) return `${e.name} answers with ${m.name}: you take ${m.damage}.`;
+  return `${e.name}'s ${m.name} (${m.damage}) is blocked down to ${taken}.${m.kind === 'smash' ? ` You counter for ${counterDamage(s)}${counterDamage(s) >= e.hp ? `, which defeats ${e.name}` : ''}.` : ''}`;
+}
+
+// The introductory assignment keeps its original wording, which is what the verified model run saw.
+const TUTORIAL_POTION = s => `Restore up to ${POTION_HP} HP. ${s.potions} potions left. Takes one turn; an active enemy retaliates.`;
+
 export function availableActions(s) {
   if (s.status === 'won' || s.status === 'lost') return [];
   const actions = [];
   const add = (id, label, command, detail) => actions.push({ id, label, command, detail: detail || label });
-  if (s.potions > 0 && s.hp < s.maxHp) add('potion', 'Drink potion', { type: 'heal' }, `Restore up to 18 HP. ${s.potions} potions left. Takes one turn; an active enemy retaliates.`);
   if (s.enemy) {
     const e = s.enemy;
-    const quick = Math.max(1, 6 + s.sword - e.armor);
-    const heavy = e.agile ? 3 : Math.max(1, 12 + s.sword - e.armor);
-    add('quick', 'Quick strike', { type: 'attack', style: 'quick' }, `${quick} damage, recover 1 stamina. Enemy retaliates if still alive.`);
-    if (s.stamina >= 2) add('heavy', 'Heavy strike', { type: 'attack', style: 'heavy' }, `${heavy} damage, costs 2 stamina.${e.agile ? ' This enemy evades most of a heavy strike.' : ''} Enemy retaliates if still alive.`);
+    const m = nextMove(e);
+    if (s.potions > 0 && s.hp < s.maxHp) add('potion', 'Drink potion', { type: 'heal' }, announced(s) ? `${s.hp <= LOW_HP ? 'Your health is LOW. ' : ''}Restore up to ${POTION_HP} HP. ${s.potions} potions left. Takes one turn. ${answerText(s)}` : TUTORIAL_POTION(s));
+    const quick = strikeDamage(s, 'quick');
+    const finish = (damage) => announced(s) && damage >= e.hp ? `Defeats ${e.name}.` : answerText(s);
+    add('quick', 'Quick strike', { type: 'attack', style: 'quick' }, `${quick} damage, recover 1 stamina. ${finish(quick)}`);
+    if (s.stamina >= 2) {
+      const heavy = strikeDamage(s, 'heavy');
+      const dodge = e.agile && m.kind !== 'winded' ? ' This enemy evades most of a heavy strike.' : '';
+      add('heavy', 'Heavy strike', { type: 'attack', style: 'heavy' }, `${heavy} damage, costs 2 stamina.${dodge} ${finish(heavy)}`);
+    }
+    if (announced(s)) add('guard', 'Guard', { type: 'guard' }, `${m.kind === 'smash' ? 'Against the SMASH: ' : ''}Deal no damage. Block up to ${guardBlock(s)} damage and recover 1 stamina. ${answerText(s, true)}`);
     add('retreat', 'Retreat', { type: 'retreat' }, `Take 2 damage and leave this fight. ${e.stamp ? 'No training stamp earned.' : e.boss ? 'Champion remains undefeated.' : 'No prize earned.'}`);
     return actions;
   }
+  if (s.potions > 0 && s.hp < s.maxHp) add('potion', 'Drink potion', { type: 'heal' }, announced(s) ? `${s.hp <= LOW_HP ? 'Your health is LOW. ' : ''}Restore up to ${POTION_HP} HP. ${s.potions} potions left. Takes one turn.` : TUTORIAL_POTION(s));
   const tile = currentTile(s);
   if (tile.kind === 'camp' && s.status === 'ready') {
     add('depart', 'Start the circuit', { type: 'advance' });
   } else {
-    if (tile.kind === 'medic' && !s.medicUsed && s.hp < s.maxHp) add('medic', 'Visit the medic', { type: 'medic' }, 'Restore 12 HP for free. Once per trial. Takes one turn.');
-    if (tile.kind === 'shop' && s.coins >= 6 && s.sword === 0) add('upgrade', 'Sharpen the sword', { type: 'upgrade' }, 'Spend 6 coins. All strikes do 2 more damage. Takes one turn.');
-    if (tile.kind === 'bench' && !s.benchUsed && s.stamina < 4) add('rest', 'Catch your breath', { type: 'rest' }, 'Restore stamina to 4. Once per lap. Takes one turn.');
+    if (tile.kind === 'medic' && !s.medicUsed && s.hp < s.maxHp) add('medic', 'Visit the medic', { type: 'medic' }, `Restore ${MEDIC_HP} HP for free. Once per trial. Takes one turn.`);
+    if (tile.kind === 'shop') {
+      if (!s.sword && s.coins >= PRICES.sword) add('buy_sword', 'Buy a sharper sword', { type: 'buy', item: 'sword' }, `Spend ${PRICES.sword} of ${s.coins} coins. Every strike deals ${SWORD_BONUS} more damage. Takes one turn.`);
+      if (!s.buckler && s.coins >= PRICES.buckler) add('buy_buckler', 'Buy a buckler', { type: 'buy', item: 'buckler' }, `Spend ${PRICES.buckler} of ${s.coins} coins. Guard blocks ${BUCKLER_BLOCK} more damage (${GUARD_BLOCK + BUCKLER_BLOCK} in total). Takes one turn.`);
+      if (s.coins >= PRICES.potion) add('buy_potion', 'Buy a potion', { type: 'buy', item: 'potion' }, `Spend ${PRICES.potion} of ${s.coins} coins for one more potion (you carry ${s.potions}). Takes one turn.`);
+    }
+    if (tile.kind === 'bench' && !s.benchUsed && (s.stamina < 4 || s.hp < s.maxHp)) add('rest', 'Catch your breath', { type: 'rest' }, `Restore stamina to 4 and up to ${BENCH_HP} HP. Once per lap. Takes one turn.`);
     if (tile.kind === 'camp' && assignmentReady(s)) add('finish', 'Submit the assignment', { type: 'finish' });
     else add('advance', tile.kind === 'camp' ? 'Try another lap' : 'Continue along the circuit', { type: 'advance' }, 'Walk to the next stop. Recover 1 stamina. Takes one turn.');
   }
@@ -62,7 +132,8 @@ function enterTile(s, messages) {
   s.resolved = false;
   if (tile.kind === 'enemy' && !(tile.boss && s.champion)) {
     const bonus = s.lap - 1;
-    s.enemy = { name: tile.name, hp: tile.hp + bonus * 3, maxHp: tile.hp + bonus * 3, damage: tile.damage + bonus, armor: tile.armor, agile: !!tile.agile, stamp: tile.stamp || null, optional: !!tile.optional, boss: !!tile.boss };
+    const routine = tile.routine.map(m => ({ ...m, damage: m.damage ? m.damage + bonus : 0 }));
+    s.enemy = { name: tile.name, hp: tile.hp + bonus * 3, maxHp: tile.hp + bonus * 3, damage: tile.damage + bonus, armor: tile.armor, agile: !!tile.agile, stamp: tile.stamp || null, optional: !!tile.optional, boss: !!tile.boss, prize: tile.prize || 2, routine, step: 0 };
     messages.push(`${tile.name} steps onto the course.`);
   }
   if (tile.kind === 'purse' && !s.purseTaken) { s.coins += 6; s.purseTaken = true; messages.push('Collected 6 guild coins.'); }
@@ -70,6 +141,17 @@ function enterTile(s, messages) {
     if (assignmentReady(s)) messages.push('All requirements met. Submit the assignment to finish.');
     else { s.lap++; s.benchUsed = false; messages.push('Back at camp. Another lap is possible, but opponents grow stronger.'); }
   }
+}
+
+function defeat(s, messages) {
+  const e = s.enemy;
+  s.coins += e.prize ?? (e.boss ? 8 : 2);
+  if (e.stamp && !s.stamps.includes(e.stamp)) { s.stamps.push(e.stamp); messages.push(`Earned a training stamp (${s.stamps.length}/${s.level === 'tutorial' ? 1 : 3}).`); }
+  if (e.boss) { s.champion = true; messages.push('Champion defeated. Return to camp with all three stamps.'); }
+  if (e.optional) s.prizeWon = true;
+  messages.push(`${e.name} defeated.${e.optional ? ` Prize: ${e.prize ?? 2} coins.` : ''}`);
+  s.enemy = null;
+  s.resolved = true;
 }
 
 export function applyAction(state, actionId, source = 'manual') {
@@ -83,6 +165,7 @@ export function applyAction(state, actionId, source = 'manual') {
   s.revision++;
   s.status = 'active';
   const command = choice.command;
+  let guarding = false;
   if (command.type === 'advance') {
     s.enemy = null;
     s.position = s.level === 'tutorial' && s.position === 1 ? 11 : (s.position + 1) % TILES.length;
@@ -91,22 +174,22 @@ export function applyAction(state, actionId, source = 'manual') {
   } else if (command.type === 'attack') {
     const e = s.enemy;
     const heavy = command.style === 'heavy';
-    const damage = heavy && e.agile ? 3 : Math.max(1, (heavy ? 12 : 6) + s.sword - e.armor);
+    const kind = nextMove(e).kind;
+    const damage = strikeDamage(s, command.style);
     s.stamina = heavy ? s.stamina - 2 : Math.min(4, s.stamina + 1);
     e.hp = Math.max(0, e.hp - damage);
-    messages.push(`Dealt ${damage} damage${heavy && e.agile ? '; Quickfoot dodged most of the blow' : ''}.`);
-    if (e.hp === 0) {
-      s.coins += e.boss ? 8 : 2;
-      if (e.stamp && !s.stamps.includes(e.stamp)) { s.stamps.push(e.stamp); messages.push(`Earned a training stamp (${s.stamps.length}/${s.level === 'tutorial' ? 1 : 3}).`); }
-      if (e.boss) { s.champion = true; messages.push('Champion defeated. Return to camp with all three stamps.'); }
-      messages.push(`${e.name} defeated.`);
-      s.enemy = null;
-      s.resolved = true;
-    }
+    const note = [heavy && e.agile && kind !== 'winded' ? `${e.name} dodged most of the blow` : '', kind === 'brace' ? `${e.name}'s shield took half` : ''].filter(Boolean).map(n => `; ${n}`).join('');
+    messages.push(`Dealt ${damage} damage${note}.`);
+    if (e.hp === 0) defeat(s, messages);
+  } else if (command.type === 'guard') {
+    guarding = true;
+    s.stamina = Math.min(4, s.stamina + 1);
+    messages.push('Raised a guard.');
   } else if (command.type === 'heal') {
-    const healed = Math.min(18, s.maxHp - s.hp);
+    const healed = Math.min(POTION_HP, s.maxHp - s.hp);
     s.hp += healed;
     s.potions--;
+    s.drank++;
     messages.push(`Used a potion for ${healed} HP.`);
   } else if (command.type === 'retreat') {
     s.hp = Math.max(0, s.hp - 2);
@@ -114,25 +197,43 @@ export function applyAction(state, actionId, source = 'manual') {
     s.enemy = null;
     s.resolved = true;
   } else if (command.type === 'medic') {
-    const healed = Math.min(12, s.maxHp - s.hp);
+    const healed = Math.min(MEDIC_HP, s.maxHp - s.hp);
     s.hp += healed;
     s.medicUsed = true;
     messages.push(`The medic restored ${healed} HP.`);
-  } else if (command.type === 'upgrade') {
-    s.coins -= 6;
-    s.sword = 2;
-    messages.push('Sword sharpened: +2 damage on normal hits.');
+  } else if (command.type === 'buy') {
+    s.coins -= PRICES[command.item];
+    if (command.item === 'sword') { s.sword = SWORD_BONUS; messages.push(`Sword sharpened: +${SWORD_BONUS} damage on every strike.`); }
+    if (command.item === 'buckler') { s.buckler = BUCKLER_BLOCK; messages.push(`Bought a buckler: guard now blocks ${guardBlock(s)}.`); }
+    if (command.item === 'potion') { s.potions++; messages.push(`Bought a potion (${s.potions} carried).`); }
   } else if (command.type === 'rest') {
+    const healed = Math.min(BENCH_HP, s.maxHp - s.hp);
     s.stamina = 4;
+    s.hp += healed;
     s.benchUsed = true;
-    messages.push('Recovered all stamina.');
+    messages.push(`Recovered all stamina${healed ? ` and ${healed} HP` : ''}.`);
   } else if (command.type === 'finish') {
     s.status = 'won';
     messages.push('Assignment accepted. The guild is reluctantly impressed.');
   }
-  if (s.enemy && command.type !== 'advance') {
-    s.hp = Math.max(0, s.hp - s.enemy.damage);
-    messages.push(`${s.enemy.name} retaliated for ${s.enemy.damage} damage.`);
+  if (s.enemy && command.type !== 'advance' && command.type !== 'retreat') {
+    const e = s.enemy;
+    const m = nextMove(e);
+    const raw = incoming(e);
+    const taken = guarding ? Math.max(0, raw - guardBlock(s)) : raw;
+    s.hp = Math.max(0, s.hp - taken);
+    if (m.kind === 'smash' && !guarding) s.bigHitsTaken++;
+    if (!announced(s)) messages.push(`${e.name} retaliated for ${taken} damage.`);
+    else if (!raw) messages.push(m.kind === 'brace' ? `${e.name} hid behind its guard.` : `${e.name} stopped to catch its breath.`);
+    else messages.push(guarding ? `${e.name}'s ${m.name} hit the guard: ${taken} damage got through.` : `${e.name}'s ${m.name} hit for ${taken} damage.`);
+    e.step++;
+    // A guarded smash leaves the opponent open: the hero counters at once, for the damage of a heavy strike.
+    if (guarding && m.kind === 'smash' && s.hp > 0) {
+      const counter = counterDamage(s);
+      e.hp = Math.max(0, e.hp - counter);
+      messages.push(`Countered for ${counter} damage.`);
+      if (e.hp === 0) defeat(s, messages);
+    }
   }
   if (s.hp === 0) { s.status = 'lost'; messages.push('Trial failed: the hero ran out of health. Revise the orders and retry.'); }
   if (s.status !== 'won' && s.turn >= s.turnLimit) { s.status = 'lost'; messages.push(`Trial failed: the guild closed after ${s.turnLimit} turns. Revise the orders and retry.`); }
@@ -140,12 +241,31 @@ export function applyAction(state, actionId, source = 'manual') {
   return s;
 }
 
+// Optional goals for the full circuit. Each rewards a different way of winning, and no one plan earns them all.
+export const COMMENDATIONS = [
+  { id: 'punctual', label: 'Ahead of schedule', rule: 'Submit by turn 26.', earned: s => s.turn <= 26 },
+  { id: 'frugal', label: 'No expense claims', rule: 'Win without drinking a potion.', earned: s => s.drank === 0 },
+  { id: 'overtime', label: 'Overtime', rule: 'Beat the optional prize bruiser too.', earned: s => s.prizeWon },
+  { id: 'textbook', label: 'By the book', rule: 'Never take a smash without guarding.', earned: s => s.bigHitsTaken === 0 },
+];
+/** Commendations for a finished circuit. Empty for the tutorial or an unfinished trial. */
+export function commendations(s) {
+  if (s.level === 'tutorial' || s.status !== 'won') return [];
+  return COMMENDATIONS.map(c => ({ id: c.id, label: c.label, rule: c.rule, earned: c.earned(s) }));
+}
+
 export function observation(s) {
+  const e = s.enemy;
+  const m = nextMove(e);
+  const enemy = e ? { ...e } : null;
+  if (enemy) delete enemy.routine;
+  if (enemy && announced(s)) enemy.nextMove = { name: m.name, kind: m.kind, damage: MOVE_KINDS[m.kind].hits ? m.damage : 0, effect: MOVE_KINDS[m.kind].summary };
   return {
-    objective: s.level === 'tutorial' ? 'Defeat the practice rat, earn one training stamp, return to camp, and submit the assignment before 12 turns.' : 'Earn the rat, boar, and Quickfoot stamps, defeat the champion, return to camp, and submit the assignment before 38 turns.',
-    hero: { hp: s.hp, maxHp: s.maxHp, healthStatus: s.hp <= LOW_HP ? 'LOW' : 'OK', stamina: s.stamina, potions: s.potions, coins: s.coins, swordBonus: s.sword },
+    objective: s.level === 'tutorial' ? 'Defeat the practice rat, earn one training stamp, return to camp, and submit the assignment before 12 turns.' : `Earn the rat, boar, and Quickfoot stamps, defeat the champion, return to camp, and submit the assignment before ${s.turnLimit} turns.`,
+    hero: { hp: s.hp, maxHp: s.maxHp, healthStatus: s.hp <= LOW_HP ? 'LOW' : 'OK', stamina: s.stamina, potions: s.potions, coins: s.coins, swordBonus: s.sword, ...(announced(s) ? { guardBlock: guardBlock(s) } : {}) },
     location: currentTile(s).name,
-    enemy: s.enemy ? { ...s.enemy } : null,
+    enemy,
+    ...(announced(s) ? { announcedMoves: true } : {}),
     progress: { stamps: s.stamps, targetStamps: s.level === 'tutorial' ? 1 : 3, requiresChampion: s.level !== 'tutorial', championDefeated: s.champion, turn: s.turn, turnLimit: s.turnLimit, lap: s.lap },
     rules: 'Quick attacks restore 1 stamina. Heavy attacks cost 2 stamina. Healing restores up to 18 HP and consumes a turn. An active enemy retaliates after healing or a nonlethal attack. The field medic heals 12 HP once. Walking restores 1 stamina. Retreat loses 2 HP and forfeits that enemy reward. Agile enemies evade heavy strikes. Model thinking does not consume game turns.',
     recentEvents: s.log.slice(-2).map(e => e.detail),

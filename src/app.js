@@ -3,7 +3,7 @@ import { parseDecision, decisionMessages } from './protocol.js';
 import { LocalModel } from './model.js';
 import { renderMap } from './map.js';
 import { MODELS, findModel, modelSize, checkDevice, recommendModel, selectedModelAdvice } from './models.js';
-import { escapeHtml, artUrl, objectiveSteps, sceneFor, lastMoveHtml, journalHtml, verdictFor, verdictHtml } from './view.js';
+import { escapeHtml, artUrl, objectiveSteps, sceneFor, lastMoveHtml, journalHtml, verdictFor, verdictHtml, ordersComplexity } from './view.js';
 
 const $ = id => document.getElementById(id);
 const DECISION_PAUSE_MS = 700; // Breathing room between turns, so a person can follow a run.
@@ -116,7 +116,7 @@ function renderHero() {
   $('stamina-value').innerHTML = `<span class="pips" aria-hidden="true">${Array.from({ length: 4 }, (_, i) => `<i class="${i < game.stamina ? 'on' : ''}"></i>`).join('')}</span><span>${game.stamina}<span class="sr-only"> of 4</span></span>`;
   $('potion-value').textContent = game.potions;
   $('coin-value').textContent = game.coins;
-  $('sword-value').textContent = game.sword ? `+${game.sword} damage` : 'Plain';
+  $('sword-value').textContent = game.sword && game.buckler ? `Sword +${game.sword}, buckler` : game.sword ? `Sword +${game.sword}` : game.buckler ? 'Buckler' : 'Basic';
   $('lap-badge').hidden = game.level !== 'circuit';
   $('lap-badge').textContent = `Lap ${game.lap}`;
 }
@@ -134,11 +134,19 @@ function renderFoe() {
     $('foe-bar').style.width = `${scene.enemy.hp / scene.enemy.maxHp * 100}%`;
   }
   $('foe-traits').innerHTML = scene.traits.map(trait => `<li>${escapeHtml(trait.label)}</li>`).join('');
+  // The announced move is the one thing to read before each decision in the full circuit.
+  const intent = scene.intent;
+  $('foe-intent').hidden = !intent;
+  if (intent) {
+    $('foe-intent').className = `intent kind-${intent.kind}`;
+    $('foe-intent').innerHTML = `<span class="intent-label">Next move</span><span class="intent-tag">${escapeHtml(intent.tag)}</span>${intent.damage ? `<b class="intent-dmg">${intent.damage} dmg</b>` : ''}<span class="intent-name">${escapeHtml(intent.name)}</span>`;
+  }
   $('foe-stamp').hidden = !scene.mark;
   $('foe-stamp').textContent = scene.mark;
   $('foe-card').className = `fighter foe${scene.enemy ? ' is-enemy' : ''}${scene.mark ? ' is-over' : ''}`;
   // The card carries the short facts; the line under it explains what each one means.
-  $('situation').innerHTML = `${escapeHtml(scene.text)}${scene.traits.length ? `<span class="trait-notes">${scene.traits.map(trait => `<span><b>${escapeHtml(trait.label)}</b> ${escapeHtml(trait.note)}</span>`).join('')}</span>` : ''}`;
+  const notes = [...(intent ? [{ label: `${intent.tag}:`, note: intent.note }] : []), ...scene.traits];
+  $('situation').innerHTML = `${escapeHtml(scene.text)}${notes.length ? `<span class="trait-notes">${notes.map(trait => `<span><b>${escapeHtml(trait.label)}</b> ${escapeHtml(trait.note)}</span>`).join('')}</span>` : ''}`;
 }
 function renderBrief() {
   document.querySelectorAll('[data-level]').forEach(tab => {
@@ -224,7 +232,14 @@ function renderOrders() {
   const changed = mode === 'llm' && game.turn > 0 && typedOrders() !== runOrders;
   $('orders').disabled = running || thinking;
   $('orders-notice').hidden = !changed;
-  $('word-count').textContent = `${typedOrders().split(/\s+/).filter(Boolean).length} words`;
+  // A reading aid only. Complex orders are allowed; small models just tend to drop some of their rules.
+  const complexity = ordersComplexity(typedOrders());
+  $('word-count').textContent = `${complexity.words} words`;
+  $('complexity').dataset.level = complexity.level;
+  $('complexity').querySelectorAll('.meter i').forEach((pip, i) => pip.classList.toggle('on', i < complexity.segments));
+  $('complexity-label').textContent = complexity.label;
+  $('complexity-counts').textContent = `· ${complexity.instructions} instruction${complexity.instructions === 1 ? '' : 's'}, ${complexity.conditions} condition${complexity.conditions === 1 ? '' : 's'}`;
+  $('complexity-advice').textContent = complexity.advice;
   $('peek-text').textContent = (game.turn > 0 && runOrders) || typedOrders() || 'No orders written.';
   document.querySelectorAll('[data-preset]').forEach(button => { button.disabled = running || thinking; });
 }
@@ -286,7 +301,9 @@ function commit(actionId, source) {
   const before = game;
   game = applyAction(game, actionId, source);
   lastFrom = before.position;
-  if (before.enemy && (actionId === 'quick' || actionId === 'heavy')) pendingFx.push({ card: 'foe-card', tone: 'loss', text: `−${before.enemy.hp - (game.enemy?.hp ?? 0)}` });
+  // Strikes, and the counter after a guarded smash, both show the damage dealt.
+  const dealt = before.enemy ? before.enemy.hp - (game.enemy?.hp ?? 0) : 0;
+  if (dealt > 0 && actionId !== 'retreat') pendingFx.push({ card: 'foe-card', tone: 'loss', text: actionId === 'guard' ? `Countered −${dealt}` : `−${dealt}` });
   if (game.hp !== before.hp) pendingFx.push({ card: 'hero-card', tone: game.hp < before.hp ? 'loss' : 'gain', text: `${game.hp < before.hp ? '−' : '+'}${Math.abs(game.hp - before.hp)}` });
   if (game.status === 'won' || game.status === 'lost') running = false;
   status = game.status === 'won' ? 'Success. Your orders got the hero home.'
