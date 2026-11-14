@@ -1,11 +1,13 @@
 import { spawn } from 'node:child_process';
-import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 export const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-export async function launch({ softwareGpu = false, hardwareGpu = false } = {}) {
-  const profile = await mkdtemp(join(tmpdir(), 'pmlq-chrome-'));
+// `profileDir` keeps the browser profile (and any downloaded model) between runs. Without it, each run starts clean.
+export async function launch({ softwareGpu = false, hardwareGpu = false, profileDir = null } = {}) {
+  const profile = profileDir || await mkdtemp(join(tmpdir(), 'pmlq-chrome-'));
+  if (profileDir) { await mkdir(profileDir, { recursive: true }); await rm(join(profileDir, 'DevToolsActivePort'), { force: true }); }
   const flags = ['--headless=new', '--no-sandbox', '--no-first-run', '--no-default-browser-check', '--disable-dev-shm-usage', '--remote-debugging-port=0', `--user-data-dir=${profile}`, '--mute-audio'];
   if (softwareGpu) flags.push('--enable-unsafe-webgpu', '--use-angle=swiftshader', '--enable-unsafe-swiftshader');
   else if (hardwareGpu) flags.push('--enable-unsafe-webgpu', '--use-angle=vulkan', '--enable-features=Vulkan', '--disable-vulkan-surface');
@@ -88,7 +90,7 @@ export async function launch({ softwareGpu = false, hardwareGpu = false } = {}) 
       for (const job of pending.values()) { clearTimeout(job.timeout); job.reject(new Error('Browser closed')); }
       pending.clear();
       await new Promise(resolve => { if (proc.exitCode!==null) resolve(); else { proc.once('exit',resolve); setTimeout(resolve,3000); } });
-      await rm(profile,{recursive:true,force:true,maxRetries:5,retryDelay:100}).catch(()=>{});
+      if (!profileDir) await rm(profile,{recursive:true,force:true,maxRetries:5,retryDelay:100}).catch(()=>{});
     },
   };
   return page;

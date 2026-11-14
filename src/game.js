@@ -1,4 +1,6 @@
 export const MAX_TURNS = 38;
+// At or below this health the hero is told its status is LOW. The interface flags the same threshold.
+export const LOW_HP = 18;
 export const PRESETS = {
   reckless: 'Fight every opponent. Use quick attacks. Drink a potion whenever any health is missing. Buy upgrades when possible. Keep going until the champion is defeated, then return to camp.',
   careful: 'Collect all three stamps, defeat the champion, and submit the assignment at camp.\nYour highest priority: when your health status is LOW, drink a potion if one is available. Otherwise save potions.\nIn every fight, use a heavy strike whenever it is available. Use a quick strike when heavy is unavailable. Never retreat.\nOutside fights, visit the medic, buy the sword upgrade, or rest when offered. Otherwise continue along the circuit.',
@@ -76,7 +78,7 @@ export function applyAction(state, actionId, source = 'manual') {
   const s = structuredClone(state);
   const at = currentTile(s).name;
   const messages = [];
-  const before = { hp: s.hp, stamina: s.stamina, potions: s.potions };
+  const before = { hp: s.hp, stamina: s.stamina, potions: s.potions, coins: s.coins, stamps: s.stamps.length };
   s.turn++;
   s.revision++;
   s.status = 'active';
@@ -134,14 +136,14 @@ export function applyAction(state, actionId, source = 'manual') {
   }
   if (s.hp === 0) { s.status = 'lost'; messages.push('Trial failed: the hero ran out of health. Revise the orders and retry.'); }
   if (s.status !== 'won' && s.turn >= s.turnLimit) { s.status = 'lost'; messages.push(`Trial failed: the guild closed after ${s.turnLimit} turns. Revise the orders and retry.`); }
-  s.log.push({ turn: s.turn, at, action: choice.id, label: choice.label, detail: messages.join(' ') || 'Moved along the course.', source, before, after: { hp: s.hp, stamina: s.stamina, potions: s.potions } });
+  s.log.push({ turn: s.turn, at, action: choice.id, label: choice.label, detail: messages.join(' ') || 'Moved along the course.', source, before, after: { hp: s.hp, stamina: s.stamina, potions: s.potions, coins: s.coins, stamps: s.stamps.length } });
   return s;
 }
 
 export function observation(s) {
   return {
     objective: s.level === 'tutorial' ? 'Defeat the practice rat, earn one training stamp, return to camp, and submit the assignment before 12 turns.' : 'Earn the rat, boar, and Quickfoot stamps, defeat the champion, return to camp, and submit the assignment before 38 turns.',
-    hero: { hp: s.hp, maxHp: s.maxHp, healthStatus: s.hp <= 18 ? 'LOW' : 'OK', stamina: s.stamina, potions: s.potions, coins: s.coins, swordBonus: s.sword },
+    hero: { hp: s.hp, maxHp: s.maxHp, healthStatus: s.hp <= LOW_HP ? 'LOW' : 'OK', stamina: s.stamina, potions: s.potions, coins: s.coins, swordBonus: s.sword },
     location: currentTile(s).name,
     enemy: s.enemy ? { ...s.enemy } : null,
     progress: { stamps: s.stamps, targetStamps: s.level === 'tutorial' ? 1 : 3, requiresChampion: s.level !== 'tutorial', championDefeated: s.champion, turn: s.turn, turnLimit: s.turnLimit, lap: s.lap },

@@ -18,19 +18,21 @@ This serves the game at **http://localhost:4173** and opens a dedicated Chrome g
 
 Alternatively use `npm start` and open the URL in your own browser. Use `PORT=8080 npm run play` for another port. `CHROME=/path/to/chrome` overrides the browser executable.
 
-1. The game checks WebGPU without downloading anything. Review its suggested model, or choose one yourself, then click **Load local model**. The initial download can take a few minutes.
-2. Click **Run these orders**, or use **One decision** to inspect each action.
-3. Compare the two example prompts, or write your own. Restart to apply changed orders.
-4. Inspect the expedition report and optionally save its JSON.
-5. After the introductory assignment, choose **Next assignment** to try the full circuit. The assignment selector also lets you switch directly.
+The screen has three numbered columns: **1 Write the orders**, **2 Watch the trial**, **3 Read the report**.
+
+1. The game checks WebGPU without downloading anything. The button under the stage names the selected model and its download size; click it to load. The initial download can take a few minutes, or much longer on a slow connection; loading stops only after five minutes without progress. **Play manually** skips the model and opens the Manual sandbox.
+2. Click **Run these orders**, or use **One decision** to inspect each action. The stage shows the hero and the current opponent or place; the panel under it shows the last move, the options on the table, and (under **What the hero is told this turn**) the exact text the model receives.
+3. Compare the two example orders, or write your own. If you edit the orders mid-trial, the next run or single decision restarts the trial with the new text.
+4. Read the report and optionally save its JSON.
+5. After the introductory assignment, choose **Next assignment** to try the full circuit. The two assignment tabs also let you switch directly. The **Rulebook** button lists every rule.
 
 The recommended **Qwen 3B** model uses WebGPU, downloads approximately 1.7 GB on first use, and needs roughly 3 GB GPU memory. The introductory assignment is deliberately short. Long policies in the second assignment are experimental: the tested models could ignore some of their conditions.
 
 Other GPU models use WebLLM with four-bit weights and 32-bit arithmetic. The Qwen 2.5 7B build downloads approximately 4 GB and needs roughly 6 GB of GPU memory. Qwen 1.5B and 0.5B builds are also available. Bigger models did not automatically solve the multi-rule circuit in testing; see the recorded limits in `VERIFICATION.md`.
 
-**Find a model for this device** checks for a WebGPU adapter, software graphics, and browser buffer limits. With unknown GPU memory it suggests the tested 3B baseline, or a smaller option when buffer limits are low. Browsers do not expose total or free VRAM; the game never treats a GPU name, system RAM, or a buffer limit as available GPU memory. Under **Know your GPU memory?**, you can supply your capacity. The recommendation reserves 20% as headroom and considers larger candidates, including **Qwen3 8B** (about 5 GB download, estimated 6.9 GB GPU memory). Estimates do not guarantee a successful load or good decisions. Qwen3 is labeled experimental.
+Under **Who plays the hero?**, **Change model or check this device** opens the model list and the device check. The check looks for a WebGPU adapter, software graphics, and browser buffer limits. With unknown GPU memory it suggests the tested 3B baseline, or a smaller option when buffer limits are low. Browsers do not expose total or free VRAM; the game never treats a GPU name, system RAM, or a buffer limit as available GPU memory. Under **Know your GPU memory?**, you can supply your capacity. The recommendation reserves 20% as headroom and considers larger candidates, including **Qwen3 8B** (about 5 GB download, estimated 6.9 GB GPU memory). Estimates do not guarantee a successful load or good decisions. Qwen3 is labeled experimental.
 
-**Use recommendation** changes the selection only when clicked. Checking again and changing the memory estimate never silently switch or unload your model. Downloads still require **Load local model**. Missing or software WebGPU suggests the experimental CPU option; Manual sandbox remains available. No benchmark, model download, or game action runs during the device check.
+A suggestion that differs from your selection appears above the load button. **Use recommendation** changes the selection only when clicked. Checking again and changing the memory estimate never silently switch or unload your model. Downloads start only from a load button that names the model. Missing or software WebGPU suggests the experimental CPU option; Manual sandbox remains available. No benchmark, model download, or game action runs during the device check.
 
 An experimental **Qwen 0.5B CPU** option runs through WebAssembly and needs no GPU. It downloads approximately 520 MB including tokenizer files, but was less reliable at following the orders. It does not silently replace the GPU controller.
 
@@ -47,7 +49,7 @@ A browser supporting the WebGPU API may still lack a usable adapter or enough me
 - Browser inference in a dedicated Web Worker. Both backends generate a JSON action ID. CPU decoding is restricted to the offered JSON strings; GPU decoding uses WebLLM's JSON Schema support.
 - Strict parsing, a second engine-side legality check, retry without consuming turns on format errors, and stale-response rejection after pause/restart/controller changes.
 - Pause, single-step, reset, editable standing orders, local prompt persistence, and a report export.
-- Responsive layouts and code-drawn SVG scenery; no external art or font dependencies.
+- Responsive layouts for three, two and one columns. The circuit map is code-drawn SVG. Portraits are generated illustrations stored in `assets/art/` (requests in `assets-src/wanted-images.tsv`); a letter placeholder appears if one is missing. No external font dependencies.
 
 The simulation pauses during inference. The deadline counts game actions, not download or thinking time. When only one action is available, the game resolves it automatically and records `auto` as the source. All genuine choices in LLM mode go through the model. The course and combat rules stay fixed between retries. Model decisions are not guaranteed to repeat identically across model versions or devices.
 
@@ -97,9 +99,11 @@ npm run test:llm
 npm run test:llm -- --full
 npm run test:llm -- --cpu
 QUEST_MODEL=Qwen3-8B-q4f32_1-MLC npm run test:llm -- --full
+QUEST_LOAD_MINUTES=60 npm run test:llm -- --full   # allow a slow first download
+QUEST_PROFILE=artifacts/llm-test-profile npm run test:llm -- --full   # keep the test browser profile, so a download is not repeated
 ```
 
-Rule tests need only Node. Browser tests need Google Chrome (`CHROME=/path/to/chrome` can override the executable). The UI smoke test uses a deterministic policy to exercise the real controls and complete the circuit; it is not an LLM benchmark.
+Rule tests need only Node. Browser tests need Google Chrome (`CHROME=/path/to/chrome` can override the executable). The UI smoke test uses a deterministic policy to exercise the real controls and complete the circuit; it is not an LLM benchmark. It then exercises the LLM-mode controls (load, thinking, a stale reply after Restart, unusable output, edited orders, pause) against a stub worker that the test injects; that part involves no inference either. `node tools/shots.mjs` saves review screenshots of every main state at three window sizes.
 
 The LLM smoke test downloads the real baseline GPU model in an isolated browser and verifies a combat decision, then changes the standing orders and checks that the same situation produces a different action. `--full` additionally checks a complete model-controlled introductory assignment. `--cpu` selects the experimental CPU model. `--software-gpu` selects Qwen 0.5B with software WebGPU for a GPU-runtime diagnostic. `QUEST_MODEL` overrides the GPU model and stores its evidence in a separate model-named artifact directory. Test browser profiles are temporary and removed afterward.
 

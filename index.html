@@ -3,70 +3,215 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#234a39">
+  <meta name="theme-color" content="#173528">
   <meta name="description" content="An adventurer follows your standing orders. Rewrite the prompt, retry the circuit, and get them home alive. Runs an LLM in your browser.">
   <title>Per My Last ReQuest — a prompt-controlled adventure</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='9' fill='%23234a39'/%3E%3Ctext x='20' y='29' text-anchor='middle' font-size='28' fill='%23f5ecd6'%3EQ%3C/text%3E%3C/svg%3E">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='9' fill='%231f4a37'/%3E%3Ctext x='20' y='29' text-anchor='middle' font-size='28' fill='%23f5ecd6'%3EQ%3C/text%3E%3C/svg%3E">
   <link rel="stylesheet" href="./style.css">
   <script type="module" src="./src/app.js"></script>
 </head>
 <body>
-  <header class="masthead">
-    <a class="brand" href="./"><span class="seal" aria-hidden="true">Q</span><span>Per My Last ReQuest<small>THE ADVENTURERS’ GUILD · FIELD TRIAL 001</small></span></a>
-    <button id="help-toggle" class="quiet" aria-expanded="false" aria-controls="help">How to play <span aria-hidden="true">↗</span></button>
+  <header class="topbar">
+    <a class="brand" href="./">
+      <span class="seal" aria-hidden="true">Q</span>
+      <span class="brand-text"><strong>Per My Last ReQuest</strong><small>The Adventurers’ Guild · Field trial 001</small></span>
+    </a>
+    <p class="tagline">Instructions were <em>unclear.</em></p>
+    <button id="help-toggle" class="ghost" aria-haspopup="dialog">Rulebook</button>
   </header>
-  <section id="help" class="help" hidden>
-    <strong>You write the orders. The hero makes the decisions.</strong>
-    <p>The first assignment asks for one stamp and a safe return within 12 turns. The second uses a twelve-stop circuit: collect three stamps, defeat the champion, and reach camp within 38 turns. Quick attacks restore stamina; heavy attacks cost 2 stamina. Agile enemies evade heavy attacks. Health is marked LOW at 18 HP or less. Healing takes a turn, so an enemy can retaliate.</p>
-    <p>Load the local model, edit your standing orders, then run the trial. Pause to inspect a decision. Retry with revised orders on the same circuit. Model loading and thinking never consume game time. Manual sandbox lets you inspect the rules without a model; it does not interpret your prompt.</p>
-  </section>
-  <main>
-    <div class="intro"><div><p class="eyebrow">A SMALL EXPERIMENT IN FOLLOWING INSTRUCTIONS</p><h1>Instructions were <em>unclear.</em></h1><p class="lede">One adventurer. Your standing orders. Predictable consequences.</p></div><div class="edition">LOCAL LLM<br><strong>Browser edition</strong></div></div>
-    <div class="game-layout">
-      <section class="field" aria-label="The guild trial">
-        <div class="field-heading"><div><label class="eyebrow" for="level">THE NEXT ASSIGNMENT</label><select id="level" aria-label="Assignment"><option value="tutorial">01 · First instructions</option><option value="circuit">02 · The full guild circuit</option></select></div><span id="lap-badge" class="badge">LAP 1</span></div>
-        <div class="stats" aria-label="Hero status">
-          <div class="hp-stat"><span>HEALTH <strong id="hp-value">40 / 40</strong></span><div class="health-track"><div id="hp-bar"></div></div></div>
-          <div><span>STAMINA</span><strong id="stamina-value">4 / 4</strong></div>
-          <div><span>POTIONS</span><strong id="potion-value">2</strong></div>
-          <div><span>COINS</span><strong id="coin-value">0</strong></div>
-          <div><span>TURNS</span><strong id="turn-value">0 / 38</strong></div>
-        </div>
-        <div class="map-wrap"><svg id="map" viewBox="0 0 760 420" role="img" aria-label="A twelve-stop training circuit. The hero starts at camp."></svg></div>
-        <div class="objective"><span class="objective-icon" aria-hidden="true">✓</span><div><strong>The assignment</strong><p id="objective-progress">Collect 3 stamps · Beat the champion · Return to camp</p></div><div id="stamps" aria-label="Zero of three stamps" class="stamps"></div></div>
-        <div id="encounter" class="encounter" aria-live="polite"></div>
-        <div class="controls"><button id="run" class="primary" disabled>Load the model to begin <span aria-hidden="true">→</span></button><button id="step" class="secondary" disabled>One decision</button><button id="reset" class="quiet">Restart trial</button><button id="next-level" class="secondary" hidden>Next assignment →</button></div>
-        <p id="run-status" class="run-status" role="status">Your hero is waiting for instructions.</p>
+
+  <dialog id="help" class="help" aria-labelledby="help-title">
+    <div class="help-head">
+      <h2 id="help-title">The rulebook</h2>
+      <button id="help-close" class="ghost" aria-label="Close the rulebook">Close ✕</button>
+    </div>
+    <p class="help-lede"><strong>You write the orders. The hero makes the decisions.</strong> Each turn the hero picks one of the offered actions, guided only by your standing orders. Change the orders, run again, compare.</p>
+    <div class="help-grid">
+      <section>
+        <h3>Assignments</h3>
+        <ul>
+          <li><strong>01 · First instructions:</strong> earn the practice rat’s stamp and submit at camp within 12 turns.</li>
+          <li><strong>02 · The full circuit:</strong> earn three stamps, beat the champion and submit at camp within 38 turns.</li>
+          <li>Every action takes one turn. Model loading and thinking take none.</li>
+          <li>Passing camp unfinished starts a new lap: opponents gain 3 HP and 1 damage.</li>
+        </ul>
       </section>
-      <aside class="orders-panel" aria-label="Standing orders and model settings">
-        <div class="panel-label"><span class="eyebrow">01 / THE INSTRUCTIONS</span><span class="ink-mark" aria-hidden="true">✎</span></div>
-        <h2>Dear hero,</h2><label class="sr-only" for="orders">Standing orders</label><textarea id="orders" maxlength="1800" spellcheck="false"></textarea>
+      <section>
+        <h3>Fighting</h3>
+        <ul>
+          <li><strong>Quick strike:</strong> 6 damage, restores 1 stamina.</li>
+          <li><strong>Heavy strike:</strong> 12 damage, costs 2 stamina.</li>
+          <li><strong>Armor</strong> blocks its value from every strike. <strong>Agile</strong> enemies take only 3 from a heavy strike.</li>
+          <li>A surviving enemy hits back after each strike or potion.</li>
+          <li><strong>Retreat:</strong> lose 2 HP, forfeit the reward.</li>
+        </ul>
+      </section>
+      <section>
+        <h3>Staying alive</h3>
+        <ul>
+          <li>The hero starts with 40 HP, 4 stamina and 2 potions.</li>
+          <li><strong>Potion:</strong> restores up to 18 HP and takes a turn.</li>
+          <li>Health is flagged <strong>LOW</strong> at 18 HP or less. The hero is told this.</li>
+          <li><strong>Field medic:</strong> 12 HP, free, once per trial.</li>
+          <li><strong>Bench:</strong> full stamina, once per lap. Walking restores 1.</li>
+        </ul>
+      </section>
+      <section>
+        <h3>Coins</h3>
+        <ul>
+          <li>The prize purse holds 6 coins. Wins pay 2; the champion pays 8.</li>
+          <li><strong>Armorer:</strong> 6 coins sharpens the sword for +2 damage on normal hits.</li>
+        </ul>
+      </section>
+    </div>
+    <p class="help-foot">Manual sandbox lets you click the actions yourself to learn the rules. It does not read your orders.</p>
+  </dialog>
+
+  <main class="desk">
+    <section class="field" aria-label="The trial">
+      <header class="field-head">
+        <div class="step-head"><span class="step-num" aria-hidden="true">2</span><h2>Watch the trial</h2></div>
+        <div class="tabs" role="group" aria-label="Assignment">
+          <button data-level="tutorial" aria-pressed="true"><span>01</span> First instructions</button>
+          <button data-level="circuit" aria-pressed="false"><span>02</span> The full circuit</button>
+        </div>
+      </header>
+
+      <div class="brief">
+        <ol id="objective" class="objective" aria-label="Assignment checklist"></ol>
+        <div class="deadline" id="deadline">
+          <span class="deadline-label">Turn</span>
+          <strong id="turn-value">0 / 12</strong>
+          <div class="deadline-track" aria-hidden="true"><div id="turn-bar"></div></div>
+          <span id="turn-left" class="deadline-left">12 left</span>
+        </div>
+      </div>
+
+      <div id="stage" class="stage">
+        <div class="fighters">
+          <article id="hero-card" class="fighter hero" aria-label="Hero status">
+            <div class="portrait"><span class="portrait-fallback" aria-hidden="true">✦</span><img id="hero-art" src="./assets/art/hero.webp" alt="" onerror="this.hidden=true"><span id="hp-flag" class="flag" hidden>Low health</span></div>
+            <div class="fighter-info">
+              <p class="kicker">Your hero <span id="lap-badge" class="lap" hidden>Lap 1</span></p>
+              <div class="hp-line"><strong id="hp-value" class="hp-num">40</strong><span id="hp-max" class="hp-max">/ 40 HP</span></div>
+              <div class="bar" aria-hidden="true"><div id="hp-bar"></div></div>
+            </div>
+            <dl class="kit">
+              <div class="kit-stamina"><dt>Stamina</dt><dd id="stamina-value"></dd></div>
+              <div><dt>Potions</dt><dd id="potion-value">2</dd></div>
+              <div><dt>Coins</dt><dd id="coin-value">0</dd></div>
+              <div><dt>Sword</dt><dd id="sword-value">Plain</dd></div>
+            </dl>
+          </article>
+          <article id="foe-card" class="fighter foe" aria-live="polite">
+            <div class="portrait"><span id="foe-fallback" class="portrait-fallback" aria-hidden="true">?</span><img id="foe-art" alt="" onerror="this.hidden=true" onload="this.hidden=false"><span id="foe-stamp" class="mini-stamp" hidden></span></div>
+            <div class="fighter-info">
+              <p id="foe-kicker" class="kicker"></p>
+              <h3 id="foe-name"></h3>
+              <div id="foe-hp" hidden>
+                <div class="hp-line"><strong id="foe-hp-value" class="hp-num">0</strong><span id="foe-hp-max" class="hp-max"></span></div>
+                <div class="bar" aria-hidden="true"><div id="foe-bar"></div></div>
+              </div>
+              <ul id="foe-traits" class="traits"></ul>
+            </div>
+          </article>
+        </div>
+        <p id="situation" class="situation"></p>
+        <div id="verdict" class="verdict" hidden></div>
+      </div>
+
+      <div id="controls" class="controls">
+        <p id="run-status" class="run-status" role="status">Your hero is waiting for instructions.</p>
+        <progress id="cta-progress" max="1" value="0" hidden></progress>
+        <div class="control-row">
+          <button id="load-cta" class="primary">Load local model <span aria-hidden="true">↓</span></button>
+          <button id="run" class="primary" disabled>Run these orders <span aria-hidden="true">→</span></button>
+          <button id="next-level" class="primary" hidden>Next assignment <span aria-hidden="true">→</span></button>
+          <button id="step" class="secondary" disabled>One decision</button>
+          <button id="manual-cta" class="secondary">Play manually</button>
+          <button id="reset" class="ghost">Restart</button>
+        </div>
+      </div>
+
+      <div id="last-move" class="last-move" aria-live="polite"></div>
+
+      <div id="options-wrap" class="options-wrap">
+        <p id="options-title" class="section-label"></p>
+        <div id="options" class="options"></div>
+        <details id="seen" class="seen">
+          <summary>What the hero is told this turn</summary>
+          <pre id="seen-text"></pre>
+        </details>
+      </div>
+
+      <a id="peek" class="peek" href="#orders-card"><span>Orders in force</span><q id="peek-text"></q><b>Edit ↓</b></a>
+
+      <div class="map-wrap">
+        <svg id="map" role="img" aria-label="The training circuit."></svg>
+      </div>
+    </section>
+
+    <aside class="orders-col" aria-label="Standing orders and hero controller">
+      <section id="orders-card" class="card letter">
+        <div class="step-head"><span class="step-num" aria-hidden="true">1</span><h2>Write the orders</h2></div>
+        <p class="salutation">Dear hero,</p>
+        <label class="sr-only" for="orders">Standing orders</label>
+        <textarea id="orders" maxlength="1800" spellcheck="false"></textarea>
         <div class="letter-signoff"><span>Regards,<br><strong>Guild management</strong></span><span id="word-count"></span></div>
-        <div class="presets"><span>TRY A DIFFERENT APPROACH</span><div><button data-preset="reckless">An unfortunate first draft</button><button data-preset="careful">A little more specific</button></div></div>
-        <p class="hint">Small edits can make a big difference. New orders apply when you restart the trial.</p>
-        <div class="model-panel"><label for="mode">Hero controller</label><select id="mode"><option value="llm">Local browser LLM</option><option value="manual">Manual sandbox · no LLM</option></select>
-          <div id="model-options">
+        <p id="orders-notice" class="notice" hidden>Orders changed. The next run restarts the trial with the new text.</p>
+        <div class="presets">
+          <span class="section-label">Example orders</span>
+          <div><button data-preset="reckless">An unfortunate first draft</button><button data-preset="careful">A little more specific</button></div>
+        </div>
+      </section>
+
+      <section class="card controller" aria-label="Hero controller">
+        <h3>Who plays the hero?</h3>
+        <div class="segmented" role="group" aria-label="Hero controller">
+          <button data-mode="llm" aria-pressed="true"><strong>Local LLM</strong><span>Reads your orders</span></button>
+          <button data-mode="manual" aria-pressed="false"><strong>Manual sandbox</strong><span>You click, no LLM</span></button>
+        </div>
+        <div id="model-options">
+          <div class="model-summary">
+            <div><strong id="model-name"></strong><p id="model-details" class="model-details"></p></div>
+            <span id="model-chip" class="chip">Not loaded</span>
+          </div>
+          <div id="recommendation-box" class="recommendation" hidden>
+            <p id="recommendation" aria-live="polite"></p>
+            <button id="use-recommendation" class="secondary full" disabled>Use recommendation</button>
+          </div>
+          <button id="load-model" class="secondary full">Load local model <span aria-hidden="true">↓</span></button>
+          <progress id="load-progress" max="1" value="0" hidden></progress>
+          <p id="model-status" role="status">Choose a model, then load it. Your orders and decisions stay in this browser.</p>
+          <details id="model-settings" class="model-settings">
+            <summary>Change model or check this device</summary>
+            <label for="model">Model</label>
+            <select id="model" aria-describedby="model-details model-advice"></select>
+            <p id="model-advice"></p>
             <div class="device-check">
-              <div class="device-heading"><strong>Find a model for this device</strong><button id="check-device" class="quiet">Check again</button></div>
+              <div class="device-heading"><strong>This device</strong><button id="check-device" class="ghost small">Check again</button></div>
               <p id="device-status" role="status">Checking browser graphics… No model download.</p>
-              <p id="recommendation" aria-live="polite"></p>
-              <button id="use-recommendation" class="secondary full" disabled>Use recommendation</button>
               <details class="memory-settings"><summary>Know your GPU memory?</summary>
                 <label for="gpu-memory">GPU memory (optional)</label>
                 <select id="gpu-memory" aria-describedby="memory-note"><option value="">I don’t know</option><option value="2">2 GB</option><option value="4">4 GB</option><option value="6">6 GB</option><option value="8">8 GB</option><option value="12">12 GB</option><option value="16">16 GB</option><option value="24">24 GB or more</option></select>
                 <p id="memory-note">Browsers don’t report total or free GPU memory. Enter a value only if you know it. Estimates reserve 20% as headroom; other apps may use more.</p>
               </details>
             </div>
-            <label for="model">Selected model</label><select id="model" aria-describedby="model-details model-advice"></select>
-            <p id="model-details" class="model-details"></p><p id="model-advice"></p>
-            <button id="load-model" class="secondary full">Load local model <span aria-hidden="true">↓</span></button><progress id="load-progress" max="1" value="0" hidden></progress><p id="model-status" role="status">Choose a model, then load it. Your orders and decisions stay in this browser.</p>
-          </div>
-          <p id="manual-note" hidden>Choose actions yourself below the map. Your prompt is not interpreted in this mode.</p>
+          </details>
         </div>
-      </aside>
-    </div>
-    <section class="journal" aria-label="Decision log"><div class="journal-heading"><div><p class="eyebrow">02 / THE CONSEQUENCES</p><h2>The expedition report.</h2></div><button id="export" class="quiet">Save report ↓</button></div><div id="journal"><p class="empty-log">Nothing to report. An unusually promising start.</p></div></section>
+        <p id="manual-note" class="notice" hidden>Manual sandbox: you choose the actions under the stage. Your orders are not read in this mode.</p>
+      </section>
+    </aside>
+
+    <section class="journal" aria-label="Decision log">
+      <div class="journal-heading">
+        <div class="step-head"><span class="step-num" aria-hidden="true">3</span><h2>Read the report</h2></div>
+        <button id="export" class="ghost small">Save JSON ↓</button>
+      </div>
+      <ol id="journal" class="log" reversed></ol>
+    </section>
   </main>
-  <footer><span>A working prototype. No server inference. No API key.</span><span>THE GUILD ACCEPTS NO RESPONSIBILITY FOR VAGUE INSTRUCTIONS.</span></footer>
+
+  <footer><span>A working prototype. No server inference. No API key.</span><span>The guild accepts no responsibility for vague instructions.</span></footer>
 </body>
 </html>

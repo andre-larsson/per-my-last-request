@@ -1,21 +1,67 @@
 import { TILES } from './game.js';
-const POSITIONS = [[100,290],[100,190],[135,100],[260,85],[390,85],[520,100],[640,175],[640,285],[540,335],[410,340],[280,340],[170,335]];
-const tree = (x,y,k=1) => `<g transform="translate(${x} ${y}) scale(${k})"><path d="M0 0v12" stroke="#737d54" stroke-width="4"/><path d="M-12 2L0-25 12 2Z" fill="#8c9a6c"/><path d="M-16 10L0-17 16 10Z" fill="#778c60"/></g>`;
-export function renderMap(s) {
-  const tutorial = s.level === 'tutorial';
-  const positions = tutorial ? POSITIONS.map((p,i) => i===0?[150,270]:i===1?[590,165]:i===11?[550,330]:p) : POSITIONS;
-  const visited = new Set(s.log.filter(e => e.action === 'advance' || e.action === 'depart').map(e => e.at));
-  const route = tutorial ? 'M150 270V185Q150 95 270 95H480Q590 95 590 165V260Q590 340 500 340H240Q150 340 150 270' : 'M100 290L100 190Q100 85 190 85L450 85Q640 85 640 190L640 260Q640 340 550 340L200 340Q100 340 100 290';
-  const nodes = TILES.map((tile,i) => {
-    if (tutorial && ![0,1,11].includes(i)) return '';
-    const [x,y]=positions[i];
-    const active=i===s.position;
-    const cleared=(tile.stamp && s.stamps.includes(tile.stamp)) || (tile.boss && s.champion);
-    const fill=active?'#234a39':cleared?'#d5dfbc':'#f9f3e2';
-    const icon=cleared?'✓':tile.kind==='camp'?'⌂':tile.kind==='enemy'?tile.boss?'♜':'⚔':tile.kind==='medic'?'+':tile.kind==='shop'?'⚒':tile.kind==='purse'?'¤':tile.kind==='bench'?'—':'·';
-    const offset=i<=5?-32:40;
-    return `<g><circle cx="${x}" cy="${y}" r="${active?26:21}" fill="${fill}" stroke="${active?'#234a39':'#a9ad8c'}" stroke-width="${active?3:1.5}"/><text x="${x}" y="${y+6}" text-anchor="middle" font-size="23" fill="${active?'#fff8e6':'#68714d'}">${icon}</text><text class="map-label" x="${x}" y="${y+offset}" text-anchor="middle">${tile.short}</text></g>`;
+import { TILE_ART, artUrl } from './view.js';
+
+// Map labels use full names, wrapped onto at most two lines, so a stop never needs decoding.
+const LABELS = [['Camp'], ['Practice', 'rat'], ['Noticeboard'], ['Tin boar'], ['Prize', 'purse'], ['Prize', 'bruiser'], ['Field', 'medic'], ['Quickfoot'], ['Armorer'], ['Bench'], ['Champion'], ['Home', 'stretch']];
+const GLYPH = { camp: '⌂', enemy: '⚔', medic: '+', shop: '⚒', purse: '¤', bench: '≡', road: '·' };
+
+const loop = (x0, y0, x1, y1, r) => `M${x0 + r} ${y0}H${x1 - r}Q${x1} ${y0} ${x1} ${y0 + r}V${y1 - r}Q${x1} ${y1} ${x1 - r} ${y1}H${x0 + r}Q${x0} ${y1} ${x0} ${y1 - r}V${y0 + r}Q${x0} ${y0} ${x0 + r} ${y0}Z`;
+
+// Wide layout: camp on the left, five stops along the top, the medic on the right, five along the bottom.
+const WIDE = {
+  w: 640, h: 312, box: [64, 88, 576, 236, 70], title: [320, 168], side: {},
+  pos: [[64, 162], [118, 88], [219, 88], [320, 88], [421, 88], [522, 88], [576, 162], [522, 236], [421, 236], [320, 236], [219, 236], [118, 236]],
+};
+// Tall layout for narrow screens: the same loop turned on its side, so labels stay full size.
+// Stops on the two long sides carry their labels inside the loop, clear of the hero marker.
+const TALL = {
+  w: 360, h: 476, box: [56, 84, 304, 412, 56], title: [180, 258], side: { 0: 'right', 11: 'right', 5: 'left', 6: 'left' },
+  pos: [[56, 212], [56, 84], [139, 84], [221, 84], [304, 84], [304, 212], [304, 312], [304, 412], [221, 412], [139, 412], [56, 412], [56, 312]],
+};
+const WIDE_TUTORIAL = { w: 640, h: 312, box: [110, 88, 530, 236, 70], title: [290, 168], side: {}, pos: { 0: [110, 162], 1: [430, 88], 11: [430, 236] } };
+const TALL_TUTORIAL = { w: 360, h: 300, box: [56, 88, 304, 232, 56], title: null, side: {}, pos: { 0: [56, 160], 1: [240, 88], 11: [240, 232] } };
+
+export function mapLayout(level, compact) {
+  return level === 'tutorial' ? (compact ? TALL_TUTORIAL : WIDE_TUTORIAL) : (compact ? TALL : WIDE);
+}
+
+/**
+ * Draws the circuit. `from` is the stop the hero just left; when given, the marker walks from there.
+ * Returns the SVG body and its viewBox, so the caller can size the element.
+ */
+export function renderMap(s, { compact = false, from = null } = {}) {
+  const layout = mapLayout(s.level, compact);
+  const route = loop(...layout.box);
+  const retreated = new Set(s.log.filter(e => e.action === 'retreat').map(e => e.at));
+  const nodes = TILES.map((tile, i) => {
+    const at = layout.pos[i];
+    if (!at) return '';
+    const [x, y] = at;
+    const active = i === s.position;
+    const cleared = (tile.stamp && s.stamps.includes(tile.stamp)) || (tile.boss && s.champion);
+    const goal = Boolean(tile.stamp || tile.boss);
+    const r = active ? 25 : 21;
+    const state = active ? 'active' : cleared ? 'cleared' : goal ? 'goal' : 'plain';
+    const badge = cleared ? `<g class="node-badge done"><circle cx="${x + 17}" cy="${y - 17}" r="9"/><path d="M${x + 12.5} ${y - 17}l3.2 3.4 5.6-6.4"/></g>`
+      : goal && retreated.has(tile.name) && !active ? `<g class="node-badge missed"><circle cx="${x + 17}" cy="${y - 17}" r="9"/><path d="M${x + 13.5} ${y - 20.5}l7 7m0-7l-7 7"/></g>` : '';
+    const side = layout.side[i];
+    const lines = LABELS[i];
+    const lx = side === 'right' ? x + 36 : side === 'left' ? x - 36 : x;
+    const ly = side ? y + 5 - (lines.length - 1) * 7 : y + r + 19;
+    const label = `<text class="map-label" x="${lx}" y="${ly}" text-anchor="${side === 'right' ? 'start' : side === 'left' ? 'end' : 'middle'}">${lines.map((line, n) => `<tspan x="${lx}" dy="${n ? 14 : 0}">${line}</tspan>`).join('')}</text>`;
+    return `<g class="node ${state}"><circle class="node-ring" cx="${x}" cy="${y}" r="${r + 5}"/><circle class="node-disc" cx="${x}" cy="${y}" r="${r}"/><text class="node-glyph" x="${x}" y="${y + 7}" text-anchor="middle">${GLYPH[tile.kind]}</text><clipPath id="clip-${i}"><circle cx="${x}" cy="${y}" r="${r - 2}"/></clipPath><image href="${artUrl(TILE_ART[i])}" x="${x - r}" y="${y - r}" width="${r * 2}" height="${r * 2}" clip-path="url(#clip-${i})" preserveAspectRatio="xMidYMid slice"/>${badge}${label}</g>`;
   }).join('');
-  const [hx,hy]=positions[s.position];
-  return `<defs><pattern id="grain" width="18" height="18" patternUnits="userSpaceOnUse"><circle cx="4" cy="6" r=".8" fill="#aab18e" opacity=".25"/><circle cx="13" cy="15" r=".7" fill="#aab18e" opacity=".25"/></pattern></defs><rect width="760" height="420" fill="#e9e8d5"/><rect width="760" height="420" fill="url(#grain)"/><path d="${route}" fill="none" stroke="#c8c6a8" stroke-width="36"/><path d="${route}" fill="none" stroke="#dbd5ba" stroke-width="27"/><path d="${route}" fill="none" stroke="#a7aa88" stroke-width="1" stroke-dasharray="3 9"/>${[[45,80,1],[55,115,.8],[700,75,1.2],[690,325,1],[710,360,.8],[52,355,.8],[210,210,.8],[555,220,1],[580,180,.7]].map(a=>tree(...a)).join('')}<g transform="translate(300 165)"><path d="M0 35V-5l75-12v52Z" fill="#d8c7a1" stroke="#ad9b78"/><path d="M-9-3L35-32 85-18 75-8 35-18 0 3Z" fill="#b76340"/><rect x="30" y="7" width="19" height="28" fill="#81735b"/><path d="M0 35h75" stroke="#9d9577" stroke-width="3"/><text x="38" y="62" text-anchor="middle" class="map-label" style="font-size:13px;letter-spacing:2px">THE GUILD GROUNDS</text><text x="38" y="81" text-anchor="middle" class="map-small">EST. LAST TUESDAY</text></g>${nodes}<g transform="translate(${hx+18} ${hy-24})" aria-hidden="true"><ellipse cx="0" cy="30" rx="15" ry="5" fill="#66744d" opacity=".2"/><path d="M-10 8L-17 27H3L9 8" fill="#b64827"/><path d="M-5 18v12M5 18v12" stroke="#343f2e" stroke-width="5"/><rect x="-8" y="5" width="16" height="15" rx="3" fill="#d7aa54"/><circle cy="-3" r="9" fill="#e4b280"/><path d="M-10-5Q-5-20 8-10L12-3H-10Z" fill="#785635"/><path d="M12 9l7-7m-3-5l6 6" stroke="#66705d" stroke-width="3"/><path d="M2-14l9-11" stroke="#b64827" stroke-width="3"/></g><text x="735" y="401" text-anchor="end" class="map-small">${visited.size ? 'FOLLOW THE ORDERS. MIND THE CONSEQUENCES.' : 'YOUR ORDERS ARE THE ONLY PLAN.'}</text>`;
+  const [hx, hy] = layout.pos[s.position];
+  const [fx, fy] = (from !== null && layout.pos[from]) || [hx, hy];
+  const moving = fx !== hx || fy !== hy;
+  const pin = `<g class="hero-pin${moving ? ' moving' : ''}" style="--x:${hx}px;--y:${hy}px;--fx:${fx}px;--fy:${fy}px" aria-hidden="true"><path d="M0 -30c-13 0-21 -9-21 -20a21 21 0 0 1 42 0c0 11-8 20-21 20z" class="pin-body"/><path d="M-7 -33L0 -22 7 -33z" class="pin-body"/><clipPath id="clip-hero"><circle cx="0" cy="-51" r="16"/></clipPath><circle cx="0" cy="-51" r="16" class="pin-face"/><image href="${artUrl('hero')}" x="-16" y="-67" width="32" height="32" clip-path="url(#clip-hero)" preserveAspectRatio="xMidYMin slice"/></g>`;
+  let title = '';
+  if (layout.title) {
+    const [tx, ty] = layout.title;
+    title = `<text class="map-title" x="${tx}" y="${ty}" text-anchor="middle">THE GUILD GROUNDS</text>` + (s.lap > 1
+      ? `<text class="map-lap" x="${tx}" y="${ty + 22}" text-anchor="middle">LAP ${s.lap} · OPPONENTS +${(s.lap - 1) * 3} HP, +${s.lap - 1} DAMAGE</text>`
+      : `<text class="map-small" x="${tx}" y="${ty + 20}" text-anchor="middle">EST. LAST TUESDAY</text>`);
+  }
+  const body = `<defs><pattern id="grain" width="18" height="18" patternUnits="userSpaceOnUse"><circle cx="4" cy="6" r=".8" fill="#9aa37c" opacity=".3"/><circle cx="13" cy="15" r=".7" fill="#9aa37c" opacity=".3"/></pattern></defs><rect width="${layout.w}" height="${layout.h}" fill="url(#grain)"/><path d="${route}" class="route-edge"/><path d="${route}" class="route-bed"/><path d="${route}" class="route-line"/>${title}${nodes}${pin}`;
+  return { body, viewBox: `0 0 ${layout.w} ${layout.h}` };
 }
