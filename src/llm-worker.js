@@ -1,9 +1,10 @@
-import { actionSchema, decisionMessages } from './protocol.js';
+import { actionSchema, decisionMessages, normalizeDecisionOutput } from './protocol.js';
 
 let engine;
 let generator;
 let transformers;
 let busy = false;
+let loadedModel = '';
 
 async function chooseOnCpu(payload) {
   const start = performance.now();
@@ -46,6 +47,7 @@ self.onmessage = async ({ data }) => {
   busy = true;
   try {
     if (type === 'load') {
+      loadedModel = payload.model;
       if (payload.model.startsWith('cpu:')) {
         transformers = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1');
         transformers.env.allowLocalModels = false;
@@ -71,11 +73,13 @@ self.onmessage = async ({ data }) => {
         response_format: { type: 'json_object', schema: JSON.stringify(actionSchema(payload.actions)) },
         temperature: 0,
         max_tokens: 64,
+        ...(loadedModel.startsWith('Qwen3-') ? { extra_body: { enable_thinking: false } } : {}),
         stream: false,
       });
       const choice = result.choices[0];
       if (!choice || choice.finish_reason !== 'stop') throw new Error(`Incomplete model decision (${choice?.finish_reason || 'no choice'}).`);
-      self.postMessage({ id, type: 'result', result: { raw: choice.message.content, elapsed: performance.now() - start, usage: result.usage, ordersReceived: payload.orders } });
+      const modelOutput = choice.message.content;
+      self.postMessage({ id, type: 'result', result: { raw: normalizeDecisionOutput(modelOutput, loadedModel), modelOutput, elapsed: performance.now() - start, usage: result.usage, ordersReceived: payload.orders } });
     } else throw new Error('Unknown model request.');
   } catch (error) {
     self.postMessage({ id, type: 'error', error: error instanceof Error ? error.message : String(error) });

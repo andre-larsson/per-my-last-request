@@ -2,6 +2,7 @@ import { newGame, availableActions, applyAction, observation, currentTile, PRESE
 import { parseDecision } from './protocol.js';
 import { LocalModel } from './model.js';
 import { renderMap } from './map.js';
+import { MODELS, findModel, modelSize, checkDevice, recommendModel, selectedModelAdvice } from './models.js';
 
 const $ = id => document.getElementById(id);
 const escape = value => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -16,6 +17,10 @@ let promptVersion = 1;
 let status = 'Your hero is waiting for instructions.';
 let hasError = false;
 let lastDecision = null;
+let device = null;
+let checkingDevice = false;
+let recommendation = null;
+$('model').replaceChildren(...MODELS.map(entry => new Option(`${entry.name} · ${entry.backend}${entry.id.startsWith('Qwen3-') || entry.backend === 'CPU' ? ', experimental' : ''}`, entry.id)));
 const model = new LocalModel(report => {
   $('load-progress').value = Math.max(0, Math.min(1, report.progress || 0));
   $('model-status').textContent = report.text;
@@ -23,6 +28,29 @@ const model = new LocalModel(report => {
 const presets = () => $('level').value === 'tutorial' ? TUTORIAL_PRESETS : PRESETS;
 try { $('orders').value = localStorage.getItem('pmlq.orders.tutorial') || TUTORIAL_PRESETS.reckless; } catch { $('orders').value = TUTORIAL_PRESETS.reckless; }
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+const gpuMemory = () => $('gpu-memory').value ? Number($('gpu-memory').value) : null;
+function renderModelAdvice() {
+  const selected = findModel($('model').value);
+  recommendation = recommendModel(device, gpuMemory());
+  $('check-device').disabled = checkingDevice || loading || running || thinking;
+  $('check-device').textContent = checkingDevice ? 'Checking…' : 'Check again';
+  $('load-model').disabled = checkingDevice || loading || thinking || running || model.ready;
+  $('gpu-memory').disabled = checkingDevice || loading || running || thinking;
+  $('device-status').textContent = checkingDevice ? 'Checking browser graphics… No model download.' : device ? `${device.name ? `${device.name}. ` : ''}${device.reason}` : 'Device has not been checked.';
+  $('recommendation').innerHTML = recommendation ? `<strong>${recommendation.model ? `Suggested: ${escape(recommendation.model.name)} · ${recommendation.model.backend}` : 'Manual sandbox recommended'}</strong><span>${escape(recommendation.reason)}</span>` : '';
+  $('use-recommendation').disabled = checkingDevice || loading || running || thinking || !recommendation?.model || selected.id === recommendation.model.id;
+  $('use-recommendation').textContent = recommendation?.model?.id === selected.id ? 'Suggested model selected ✓' : 'Use recommendation';
+  $('model-details').textContent = `About ${modelSize(selected.downloadGB)} download${selected.memoryGB ? ` · ~${selected.memoryGB} GB GPU memory` : ' · no GPU needed'}`;
+  $('model-advice').textContent = selectedModelAdvice(selected, device, gpuMemory());
+}
+async function checkHardware() {
+  if (checkingDevice || loading || running || thinking) return;
+  checkingDevice = true;
+  renderModelAdvice();
+  try { device = await checkDevice(); }
+  finally { checkingDevice = false; renderModelAdvice(); }
+}
 
 function saveOrders() {
   try { localStorage.setItem(`pmlq.orders.${$('level').value}`, $('orders').value); } catch { /* Storage may be unavailable in private browser contexts. */ }
@@ -88,6 +116,7 @@ function render() {
   $('load-model').textContent = loading ? 'Loading model…' : model.ready ? 'Model ready ✓' : 'Load local model ↓';
   $('model-options').hidden = mode === 'manual';
   $('manual-note').hidden = mode !== 'manual';
+  renderModelAdvice();
   $('run-status').textContent = thinking ? 'The hero is considering your orders… Game time is paused.' : status;
   $('run-status').className = `run-status${hasError ? ' error' : ''}`;
   $('journal').innerHTML = game.log.length ? game.log.slice().reverse().map(e => `<div class="log-entry"><span class="log-turn">TURN ${e.turn}</span><div><span class="log-title">${escape(e.label)} <span style="font-weight:400;color:var(--muted)">/ ${escape(e.at)}</span></span><p class="log-detail">${escape(e.detail)} <strong>${e.after.hp} HP · ${e.after.potions} potions</strong></p></div><span class="log-source">${escape(e.source.toUpperCase())}</span></div>`).join('') : '<p class="empty-log">Nothing to report. An unusually promising start.</p>';
@@ -145,7 +174,7 @@ async function run() {
   render();
 }
 async function loadModel() {
-  if (loading || model.ready) return;
+  if (loading || checkingDevice || model.ready) return;
   loading = true;
   $('model-status').className = '';
   $('load-progress').hidden = false;
@@ -164,6 +193,13 @@ async function loadModel() {
   } finally { loading = false; $('load-progress').hidden = true; render(); }
 }
 $('load-model').addEventListener('click', loadModel);
+$('check-device').addEventListener('click', checkHardware);
+$('gpu-memory').addEventListener('change', renderModelAdvice);
+$('use-recommendation').addEventListener('click', () => {
+  if (!recommendation?.model || $('use-recommendation').disabled) return;
+  $('model').value = recommendation.model.id;
+  $('model').dispatchEvent(new Event('change'));
+});
 $('run').addEventListener('click', run);
 $('step').addEventListener('click', decide);
 $('reset').addEventListener('click', reset);
@@ -175,8 +211,9 @@ $('level').addEventListener('change', () => { $('orders').value = presets().reck
 $('next-level').addEventListener('click', () => { $('level').value = 'circuit'; $('level').dispatchEvent(new Event('change')); });
 $('encounter').addEventListener('click', event => { const button = event.target.closest('[data-action]'); if (button && mode === 'manual' && !thinking) { commit(button.dataset.action, 'manual'); render(); } });
 $('help-toggle').addEventListener('click', () => { $('help').hidden = !$('help').hidden; $('help-toggle').setAttribute('aria-expanded', String(!$('help').hidden)); });
-$('export').addEventListener('click', () => { const report = { title: 'Per My Last Quest', controller: mode, model: model.model || null, promptVersion, orders: runOrders || $('orders').value, result: game.status, state: game, lastDecision }; const url = URL.createObjectURL(new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' })); const a = document.createElement('a'); a.href = url; a.download = 'per-my-last-quest-report.json'; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); });
+$('export').addEventListener('click', () => { const report = { title: 'Per My Last ReQuest', controller: mode, model: model.model || null, promptVersion, orders: runOrders || $('orders').value, result: game.status, state: game, lastDecision }; const url = URL.createObjectURL(new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' })); const a = document.createElement('a'); a.href = url; a.download = 'per-my-last-request-report.json'; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); });
 window.addEventListener('beforeunload', () => model.dispose());
 // Small debugging surface for browser smoke tests and reproducible reports.
-window.QuestDemo = { snapshot: () => structuredClone({ game, mode, running, thinking, modelReady: model.ready, status, lastDecision, orders: runOrders }), loadModel, decide };
+window.QuestDemo = { snapshot: () => structuredClone({ game, mode, running, thinking, modelReady: model.ready, status, lastDecision, orders: runOrders, device, checkingDevice, recommendation: recommendation?.model?.id || null }), loadModel, decide };
 render();
+checkHardware();

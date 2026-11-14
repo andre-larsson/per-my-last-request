@@ -1,18 +1,17 @@
-# Per My Last Quest: design proposals
+# Per My Last ReQuest: design proposals
 
-These are proposals from the brainstorming session. README.md describes the current demo. The title remains provisional.
+These are proposals from the brainstorming session. README.md describes the current demo. The selected title is **Per My Last ReQuest** (`per-my-last-request`).
 
 
-### Alternative names
+### Earlier naming candidates
 
-The current name is provisional. Suggested alternatives:
+Earlier suggestions included:
 
-- **Per My Last Quest** — preferred suggestion for the adventurers' guild setting; suggests revised instructions and bureaucratic comedy.
 - **Dear Hero, Please** — frames each prompt as a letter to an unreliable adventurer.
 - **Quest, As Instructed** — emphasizes literal obedience and its consequences.
 - **Please Advise, Adventurer** — suits the guild-and-contract premise.
 
-These are naming candidates, not a selected title. Name availability has not been established.
+These alternatives were not selected. Name availability has not been established.
 
 ### Core concept
 

@@ -21,5 +21,5 @@ export function serve(port = 4173) {
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const port = Number(process.argv[2] || process.env.PORT || 4173);
   const server = await serve(port);
-  console.log(`Per My Last Quest → http://localhost:${server.address().port}`);
+  console.log(`Per My Last ReQuest → http://localhost:${server.address().port}`);
 }

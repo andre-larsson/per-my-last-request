@@ -2,6 +2,12 @@ export function actionSchema(actions) {
   if (!actions.length) throw new Error('Cannot request a decision with no available actions.');
   return { type: 'object', properties: { action: { type: 'string', enum: actions.map(a => a.id) } }, required: ['action'], additionalProperties: false };
 }
+export function normalizeDecisionOutput(raw, modelId) {
+  // WebLLM's Qwen3 enable_thinking:false prefill is included in message.content.
+  // Remove only that exact empty block. Free-form reasoning and arbitrary wrappers still fail parsing.
+  const prefix = '<think>\n\n</think>\n\n';
+  return modelId.startsWith('Qwen3-') && typeof raw === 'string' && raw.startsWith(prefix) ? raw.slice(prefix.length) : raw;
+}
 export function parseDecision(raw, actions) {
   if (typeof raw !== 'string' || raw.length > 2048) throw new Error('Missing or oversized model decision.');
   const value = JSON.parse(raw);

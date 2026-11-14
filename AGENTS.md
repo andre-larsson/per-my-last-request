@@ -1,4 +1,4 @@
-# Per My Last Quest
+# Per My Last ReQuest
 
 - Local browser game prototype. Working title; no remote or deployment is configured.
 - Plain browser ES modules and CSS, with a Node-only development server. Avoid introducing a frontend framework for this small demo.

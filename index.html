@@ -5,14 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#234a39">
   <meta name="description" content="An adventurer follows your standing orders. Rewrite the prompt, retry the circuit, and get them home alive. Runs an LLM in your browser.">
-  <title>Per My Last Quest — a prompt-controlled adventure</title>
+  <title>Per My Last ReQuest — a prompt-controlled adventure</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='9' fill='%23234a39'/%3E%3Ctext x='20' y='29' text-anchor='middle' font-size='28' fill='%23f5ecd6'%3EQ%3C/text%3E%3C/svg%3E">
   <link rel="stylesheet" href="./style.css">
   <script type="module" src="./src/app.js"></script>
 </head>
 <body>
   <header class="masthead">
-    <a class="brand" href="./"><span class="seal" aria-hidden="true">Q</span><span>PER MY LAST QUEST<small>THE ADVENTURERS’ GUILD · FIELD TRIAL 001</small></span></a>
+    <a class="brand" href="./"><span class="seal" aria-hidden="true">Q</span><span>Per My Last ReQuest<small>THE ADVENTURERS’ GUILD · FIELD TRIAL 001</small></span></a>
     <button id="help-toggle" class="quiet" aria-expanded="false" aria-controls="help">How to play <span aria-hidden="true">↗</span></button>
   </header>
   <section id="help" class="help" hidden>
@@ -45,7 +45,22 @@
         <div class="presets"><span>TRY A DIFFERENT APPROACH</span><div><button data-preset="reckless">An unfortunate first draft</button><button data-preset="careful">A little more specific</button></div></div>
         <p class="hint">Small edits can make a big difference. New orders apply when you restart the trial.</p>
         <div class="model-panel"><label for="mode">Hero controller</label><select id="mode"><option value="llm">Local browser LLM</option><option value="manual">Manual sandbox · no LLM</option></select>
-          <div id="model-options"><label for="model">Model</label><select id="model"><option value="Qwen2.5-3B-Instruct-q4f32_1-MLC">Qwen 3B · WebGPU, recommended</option><option value="cpu:onnx-community/Qwen2.5-0.5B-Instruct">Qwen 0.5B · CPU, experimental</option><option value="Qwen2.5-7B-Instruct-q4f32_1-MLC">Qwen 7B · WebGPU, larger</option><option value="Qwen2.5-0.5B-Instruct-q4f32_1-MLC">Qwen 0.5B · WebGPU</option><option value="Qwen2.5-1.5B-Instruct-q4f32_1-MLC">Qwen 1.5B · WebGPU</option></select><button id="load-model" class="secondary full">Load local model <span aria-hidden="true">↓</span></button><progress id="load-progress" max="1" value="0" hidden></progress><p id="model-status" role="status">The recommended model downloads about 1.7 GB and needs WebGPU with about 3 GB of GPU memory. The smaller CPU option is experimental. Your orders and decisions stay in this browser.</p></div>
+          <div id="model-options">
+            <div class="device-check">
+              <div class="device-heading"><strong>Find a model for this device</strong><button id="check-device" class="quiet">Check again</button></div>
+              <p id="device-status" role="status">Checking browser graphics… No model download.</p>
+              <p id="recommendation" aria-live="polite"></p>
+              <button id="use-recommendation" class="secondary full" disabled>Use recommendation</button>
+              <details class="memory-settings"><summary>Know your GPU memory?</summary>
+                <label for="gpu-memory">GPU memory (optional)</label>
+                <select id="gpu-memory" aria-describedby="memory-note"><option value="">I don’t know</option><option value="2">2 GB</option><option value="4">4 GB</option><option value="6">6 GB</option><option value="8">8 GB</option><option value="12">12 GB</option><option value="16">16 GB</option><option value="24">24 GB or more</option></select>
+                <p id="memory-note">Browsers don’t report total or free GPU memory. Enter a value only if you know it. Estimates reserve 20% as headroom; other apps may use more.</p>
+              </details>
+            </div>
+            <label for="model">Selected model</label><select id="model" aria-describedby="model-details model-advice"></select>
+            <p id="model-details" class="model-details"></p><p id="model-advice"></p>
+            <button id="load-model" class="secondary full">Load local model <span aria-hidden="true">↓</span></button><progress id="load-progress" max="1" value="0" hidden></progress><p id="model-status" role="status">Choose a model, then load it. Your orders and decisions stay in this browser.</p>
+          </div>
           <p id="manual-note" hidden>Choose actions yourself below the map. Your prompt is not interpreted in this mode.</p>
         </div>
       </aside>

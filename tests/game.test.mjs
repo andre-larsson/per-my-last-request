@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { newGame, applyAction, availableActions, observation, MAX_TURNS } from '../src/game.js';
-import { actionSchema, parseDecision, decisionMessages } from '../src/protocol.js';
+import { actionSchema, parseDecision, decisionMessages, normalizeDecisionOutput } from '../src/protocol.js';
 
 function policy(s, reckless = false) {
   const ids = availableActions(s).map(a => a.id);
@@ -99,6 +99,18 @@ test('protocol accepts exactly an offered action ID', () => {
   for (const raw of [null, 'null', '[]', '{}', 'not JSON', '{"action":2}', '{"action":"win"}', '{"action":"depart","hp":999}', '```json\n{"action":"depart"}\n```']) assert.throws(() => parseDecision(raw, actions));
   assert.throws(() => actionSchema([]));
   assert.deepEqual(actionSchema(actions).properties.action.enum, ['depart']);
+});
+test('Qwen3 adapter removes only WebLLM\'s exact empty thinking prefill', () => {
+  const actions = availableActions(newGame());
+  const valid = '{"action":"depart"}';
+  const prefixed = `<think>\n\n</think>\n\n${valid}`;
+  const qwen3 = 'Qwen3-8B-q4f32_1-MLC';
+  assert.equal(parseDecision(normalizeDecisionOutput(prefixed, qwen3), actions), 'depart');
+  assert.equal(normalizeDecisionOutput(valid, qwen3), valid);
+  for (const raw of [`<think>Some reasoning</think>\n${valid}`, `Here is my answer: ${valid}`, `<think>\n\n</think>\n\n{"action":"win"}`]) {
+    assert.throws(() => parseDecision(normalizeDecisionOutput(raw, qwen3), actions));
+  }
+  assert.throws(() => parseDecision(normalizeDecisionOutput(prefixed, 'Qwen2.5-3B-Instruct-q4f32_1-MLC'), actions));
 });
 test('observations expose actual resource counts and keep commands out of model output', () => {
   const s = applyAction(newGame(), 'depart');

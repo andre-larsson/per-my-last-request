@@ -13,7 +13,7 @@ const flags = [`--user-data-dir=${profile}`, '--no-first-run', '--no-default-bro
 if (process.platform === 'linux') flags.push('--enable-unsafe-webgpu', '--use-angle=vulkan', '--enable-features=Vulkan');
 if (headless) flags.push('--headless=new', '--disable-vulkan-surface', url);
 else flags.push(`--app=${url}`);
-console.log(`Per My Last Quest → ${url}`);
+console.log(`Per My Last ReQuest → ${url}`);
 console.log('Opening a dedicated Chrome window. Close it or press Ctrl+C to stop.');
 const chrome = spawn(process.env.CHROME || 'google-chrome', flags, { stdio: 'ignore' });
 let stopping = false;

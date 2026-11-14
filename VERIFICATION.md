@@ -1,6 +1,32 @@
 # Verification notes
 
-Local prototype checks on 2026-11-13. This file distinguishes game-rule checks, browser UI checks, and genuine model inference.
+Original prototype checks on 2026-11-13, with model-selection checks added on 2026-11-14. This file distinguishes game-rule checks, browser UI checks, and genuine model inference.
+
+## Device recommendations (2026-11-14)
+
+`npm test` passed **20 tests**, including hardware-check errors and timeout, transient GPU startup refusal, unknown memory, software graphics, per-buffer limits, player-supplied capacity with headroom, and strict Qwen3 response normalization.
+
+`npm run test:browser` passed on hardware WebGPU at desktop 1440 × 1100 and responsive viewports 390 × 844 and 360 × 844. It exercised the recommendation controls, a 24 GB capacity suggesting Qwen3 8B, a 2 GB capacity suggesting a smaller model, explicit application of a suggestion, memory advice for an oversized selection, and rechecking without changing the selected model. A simulated missing `navigator.gpu` exercised the real UI's CPU suggestion. Checking and selecting spent no game turns and did not load a model. Existing manual circuit victory and tutorial progression checks still passed. No browser console or runtime errors occurred.
+
+The browser check reports adapter availability and buffer limits, not total or free VRAM. A stated GPU capacity is user input, with 20% reserved as headroom. Recommendations are estimates and are not a model speed or decision-quality benchmark.
+
+Screenshots: [device check on desktop](artifacts/model-check-desktop.png), [device check at 360 px](artifacts/model-check-phone.png).
+
+## Qwen3 8B browser inference (2026-11-14)
+
+`QUEST_MODEL=Qwen3-8B-q4f32_1-MLC npm run test:llm -- --full` passed on the RTX 4090 with real hardware WebGPU:
+
+- The model downloaded and loaded in approximately 155 seconds in a fresh test profile. The runtime reported approximately 4.4 GB of weight downloads; the UI rounds its download estimate up to 5 GB.
+- The first combat decision followed the quick-strike prompt (`quick`, 2.11 seconds). Changing only the standing orders to retreat selected `retreat` in the same situation (0.84 seconds).
+- The complete introductory assignment finished in **6 turns**, with **37 HP**, **2 potions**, the required stamp, and a safe return. All genuine choices came from the LLM; only the forced departure used `auto`.
+- Rechecking the device after loading preserved the ready model and its selection.
+- No browser console or runtime errors occurred.
+
+The first Qwen3 attempt loaded but failed strict parsing because WebLLM includes its empty thinking prefill in `message.content`. The model-specific adapter now removes only that exact prefix with thinking disabled. Original `modelOutput` is preserved in reports. Tests confirm that nonempty reasoning, extra prose, illegal IDs, and wrappers on other models are still rejected.
+
+This is evidence of a working Qwen3 tutorial and prompt contrast, not of better full-circuit performance. The second assignment was not tested with Qwen3. It remains labeled experimental.
+
+Evidence: [Qwen3 report](artifacts/Qwen3-8B-q4f32-1-MLC/llm-report.json), [tutorial result](artifacts/Qwen3-8B-q4f32-1-MLC/llm-full-trial.json), [tutorial screenshot](artifacts/Qwen3-8B-q4f32-1-MLC/llm-full-trial.png).
 
 ## Game and protocol
 

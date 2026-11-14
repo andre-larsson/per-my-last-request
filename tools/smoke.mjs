@@ -3,19 +3,23 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { serve, ROOT } from './serve.mjs';
 import { launch, sleep } from './chrome.mjs';
+import { findModel } from '../src/models.js';
 
 const llm = process.argv.includes('--llm');
 const gpuTest = llm && !process.argv.includes('--cpu');
 const softwareGpu = process.argv.includes('--software-gpu');
 const fullTrial = process.argv.includes('--full');
-const artifacts = join(ROOT, 'artifacts');
+const customModel = process.env.QUEST_MODEL;
+if (customModel && !findModel(customModel)) throw new Error(`Unknown test model: ${customModel}`);
+const artifacts = join(ROOT, 'artifacts', customModel ? customModel.replace(/[^a-z0-9-]/gi, '-') : '');
 await mkdir(artifacts,{recursive:true});
 const server = await serve(0);
 let page;
 try {
-  page = await launch({softwareGpu:gpuTest&&softwareGpu,hardwareGpu:gpuTest&&!softwareGpu});
+  page = await launch({softwareGpu,hardwareGpu:!softwareGpu});
   await page.viewport(1440,1100);
   await page.goto(`http://127.0.0.1:${server.address().port}/`);
+  await page.waitFor('!QuestDemo.snapshot().checkingDevice');
   const gpu = await page.eval(`(async()=>{if(!navigator.gpu)return null;const a=await navigator.gpu.requestAdapter();return a?{info:{vendor:a.info.vendor,architecture:a.info.architecture,device:a.info.device,description:a.info.description,isFallbackAdapter:a.info.isFallbackAdapter},maxBufferSize:a.limits.maxBufferSize,maxStorageBufferBindingSize:a.limits.maxStorageBufferBindingSize}:null})()`);
   console.log('WebGPU:',JSON.stringify(gpu));
   await page.screenshot(join(artifacts,'desktop.png'));
@@ -27,6 +31,41 @@ try {
   }
   await page.viewport(1440,1100);
   if (!llm) {
+    if (!(await page.eval('QuestDemo.snapshot().device.gpu && !QuestDemo.snapshot().device.software'))) {
+      // UI checks can exercise recommendations even on hosts without a hardware adapter. No inference is claimed.
+      await page.eval(`Object.defineProperty(navigator,'gpu',{configurable:true,value:{requestAdapter:async()=>({info:{description:'UI test adapter'},limits:{maxBufferSize:2**30,maxStorageBufferBindingSize:2**30}})}});`);
+      await page.click('#check-device');
+      await page.waitFor('!QuestDemo.snapshot().checkingDevice');
+    }
+    const baseline = await page.eval('document.querySelector("#model").value');
+    assert.match(await page.eval('document.querySelector("#recommendation").textContent'), /Suggested:/);
+    await page.click('.memory-settings summary');
+    await page.eval(`document.querySelector('#gpu-memory').value='24';document.querySelector('#gpu-memory').dispatchEvent(new Event('change'));`);
+    assert.equal(await page.eval('document.querySelector("#model").value'),baseline,'Recommendations never silently switch a model');
+    assert.equal(await page.eval('QuestDemo.snapshot().recommendation'),'Qwen3-8B-q4f32_1-MLC');
+    await page.click('#use-recommendation');
+    assert.equal(await page.eval('document.querySelector("#model").value'),'Qwen3-8B-q4f32_1-MLC');
+    assert.match(await page.eval('document.querySelector("#model-details").textContent'),/6.9 GB/);
+    await page.eval(`document.querySelector('#gpu-memory').value='2';document.querySelector('#gpu-memory').dispatchEvent(new Event('change'));`);
+    assert.match(await page.eval('document.querySelector("#model-advice").textContent'),/exceeds/);
+    await page.click('#check-device');
+    await page.waitFor('!QuestDemo.snapshot().checkingDevice');
+    assert.equal(await page.eval('document.querySelector("#model").value'),'Qwen3-8B-q4f32_1-MLC');
+    await page.screenshot(join(artifacts,'model-check-desktop.png'));
+    await page.viewport(360,844,true);
+    assert.equal(await page.eval('document.documentElement.scrollWidth > innerWidth'),false,'Model advice fits at 360px');
+    await page.screenshot(join(artifacts,'model-check-phone.png'));
+    await page.viewport(1440,1100);
+    // Exercise unavailable WebGPU through the real check control, without downloading any model.
+    await page.eval(`Object.defineProperty(navigator,'gpu',{configurable:true,value:undefined});`);
+    await page.click('#check-device');
+    await page.waitFor('!QuestDemo.snapshot().checkingDevice');
+    assert.equal(await page.eval('QuestDemo.snapshot().device.gpu'),false);
+    assert.match(await page.eval('document.querySelector("#recommendation").textContent'),/CPU/);
+    await page.click('#use-recommendation');
+    assert.match(await page.eval('document.querySelector("#model").value'),/^cpu:/);
+    assert.equal(await page.eval('QuestDemo.snapshot().game.turn'),0,'Checks and selections do not consume turns');
+    assert.equal(await page.eval('QuestDemo.snapshot().modelReady'),false,'Checking never downloads a model');
     await page.eval(`document.querySelector('#level').value='circuit';document.querySelector('#level').dispatchEvent(new Event('change',{bubbles:true}));`);
     await page.eval(`document.querySelector('#mode').value='manual';document.querySelector('#mode').dispatchEvent(new Event('change',{bubbles:true}));`);
     await page.click('[data-action="depart"]');
@@ -71,8 +110,8 @@ try {
   } else {
     await page.click('[data-preset="careful"]');
     if(gpuTest) {
-      if(!gpu)throw Error('Software WebGPU did not expose an adapter.');
-      await page.eval(`document.querySelector('#model').value='${softwareGpu?'Qwen2.5-0.5B-Instruct-q4f32_1-MLC':'Qwen2.5-3B-Instruct-q4f32_1-MLC'}';document.querySelector('#model').dispatchEvent(new Event('change',{bubbles:true}));`);
+      if(!gpu)throw Error('WebGPU did not expose an adapter for the inference test.');
+      await page.eval(`document.querySelector('#model').value=${JSON.stringify(customModel || (softwareGpu?'Qwen2.5-0.5B-Instruct-q4f32_1-MLC':'Qwen2.5-3B-Instruct-q4f32_1-MLC'))};document.querySelector('#model').dispatchEvent(new Event('change',{bubbles:true}));`);
     } else await page.eval(`document.querySelector('#model').value='cpu:onnx-community/Qwen2.5-0.5B-Instruct';document.querySelector('#model').dispatchEvent(new Event('change',{bubbles:true}));`);
     await page.click('#load-model');
     const start=Date.now();
@@ -85,6 +124,11 @@ try {
       await sleep(2000);
     }
     assert.equal(await page.eval('QuestDemo.snapshot().modelReady'),true,'Model did not become ready');
+    const loadedSelection = await page.eval('document.querySelector("#model").value');
+    await page.click('#check-device');
+    await page.waitFor('!QuestDemo.snapshot().checkingDevice');
+    assert.equal(await page.eval('QuestDemo.snapshot().modelReady'),true,'Rechecking must not unload a ready model');
+    assert.equal(await page.eval('document.querySelector("#model").value'),loadedSelection);
     // A forced departure is automatic; inference is reserved for real decisions.
     await page.click('#step');
     await page.waitFor('!QuestDemo.snapshot().thinking',190000);
@@ -95,8 +139,8 @@ try {
     await page.click('#step');
     await page.waitFor('!QuestDemo.snapshot().thinking',190000);
     const combat=await page.eval('QuestDemo.snapshot()');
-    assert.equal(combat.lastDecision.ordersReceived,combat.orders);
     assert.equal(combat.game.turn,2,combat.status);
+    assert.equal(combat.lastDecision.ordersReceived,combat.orders);
     assert.equal(combat.game.log[1].source,'llm');
     assert.ok(['quick','heavy','retreat'].includes(combat.game.log[1].action));
     await page.screenshot(join(artifacts,'llm-combat.png'));
@@ -107,8 +151,8 @@ try {
     await page.click('#step');
     await page.waitFor('!QuestDemo.snapshot().thinking',190000);
     const reversed = await page.eval('QuestDemo.snapshot()');
-    assert.equal(reversed.lastDecision.ordersReceived,reversed.orders);
     assert.equal(reversed.game.turn,2,reversed.status);
+    assert.equal(reversed.lastDecision.ordersReceived,reversed.orders);
     console.log('Retreat-order response:',JSON.stringify(reversed.lastDecision));
     let fullResult;
     if(fullTrial) {
