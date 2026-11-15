@@ -79,7 +79,7 @@ A browser supporting the WebGPU API may still lack a usable adapter or enough me
 
 **Manual sandbox** offers the same game rules with clickable actions. It does not interpret prompts and is labeled separately from model-controlled play. It is for local play and tools only (`npm start`, `npm run play`, the browser tests and screenshots); `tools/build.mjs` removes it from the published site.
 
-**Random** makes the hero ignore the orders and pick one of the offered actions uniformly at random. It loads and asks no model, so it works in any browser, on the published site too. It uses the same Run, Pause, pace and playback as the model hero. The report labels each pick "Random pick", and the verdict credits luck, not the orders. It is a baseline for orders to beat (in 100,000 simulated trials each, random picks won 67% of First instructions, 2% of Fair warning, 3% of Prize money and 0.2% of the full circuit). Nothing switches to it by itself: it never stands in for a model that fails to load or answer.
+**Random** makes the hero ignore the orders and pick one of the offered actions uniformly at random. It loads and asks no model, so it works in any browser, on the published site too. It uses the same Run, Pause, pace and playback as the model hero. While it is selected, the orders and the example orders are locked. The report labels each pick "Random pick", and the verdict credits luck, not the orders. It is a baseline for orders to beat (in 100,000 simulated trials each, random picks won 67% of First instructions, 2% of Fair warning, 3% of Prize money and 0.2% of the full circuit). Nothing switches to it by itself: it never stands in for a model that fails to load or answer.
 
 ## What the demo implements
 
@@ -93,7 +93,7 @@ A browser supporting the WebGPU API may still lack a usable adapter or enough me
 - The size of the orders, in words and tokens (the pieces of text a model reads). A loaded model counts the tokens with its own tokenizer; before that they are estimated and shown as "about". The size makes no claim about how well a model will follow the orders, and never changes how a trial plays.
 - Browser inference in a dedicated Web Worker. Both backends generate a JSON action ID. CPU decoding is restricted to the offered JSON strings; GPU decoding uses WebLLM's JSON Schema support.
 - Strict parsing, a second engine-side legality check, retry without consuming turns on format errors, and stale-response rejection after pause/restart/controller changes.
-- A goal line above the checklist for every assignment, and a goal checklist in the verdict that marks each condition met or not, with evidence from the log, and names what ended a lost trial.
+- A running goal checklist above the stage: every opponent to beat, submitting at camp, and the two limits (HP and turns). It is open before the first move, updates each turn with evidence from the log, and at the end marks each condition met or not and names what ended a lost trial.
 - Pause, a turn-by-turn pace, reset, editable standing orders, local prompt persistence, and a report export.
 - Turn playback decoupled from the engine: a turn resolves at once, then the stage replays it beat by beat while the model already reads the next turn.
 - Responsive layouts for three, two and one columns. The circuit map is code-drawn SVG. Portraits are generated illustrations stored in `assets/art/` (requests in `assets-src/wanted-images.tsv`); a letter placeholder appears if one is missing. No external font dependencies.

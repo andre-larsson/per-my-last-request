@@ -102,16 +102,7 @@
         </div>
       </header>
 
-      <div class="brief">
-        <p class="brief-goal"><span class="section-label">Goal</span> <span id="goal-text"></span></p>
-        <ol id="objective" class="objective" aria-label="Assignment checklist"></ol>
-        <div class="deadline" id="deadline">
-          <span class="deadline-label">Turns used</span>
-          <strong id="turn-value">0 / 12</strong>
-          <div class="deadline-track" aria-hidden="true"><div id="turn-bar"></div></div>
-          <span id="turn-left" class="deadline-left">12 left</span>
-        </div>
-      </div>
+      <div id="checklist" class="brief" aria-label="Goal checklist" role="group"></div>
 
       <div id="stage" class="stage">
         <p id="paused-badge" class="paused-badge" hidden><span aria-hidden="true">Ⅱ</span> Paused</p>
@@ -198,6 +189,7 @@
         <textarea id="orders" maxlength="1800" spellcheck="false"></textarea>
         <div class="letter-signoff"><span>Regards,<br><strong>Guild management</strong></span><span id="orders-size" class="orders-size"></span></div>
         <p id="orders-notice" class="notice" hidden>Orders changed. The next run restarts the trial with the new text.</p>
+        <p id="orders-off" class="notice" hidden>The Random hero does not read orders, so they are locked. To edit them, choose Local LLM under Who plays the hero.</p>
         <div class="presets">
           <span class="section-label">Example orders</span>
           <div><button data-preset="reckless">An unfortunate first draft</button><button data-preset="careful">A little more specific</button></div>

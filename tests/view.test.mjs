@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { newGame, applyAction, availableActions, TILES, LOW_HP, observation, nextMove, strikeDamage, commendations, PRESETS, TUTORIAL_PRESETS, LEVELS, LEVEL_ORDER } from '../src/game.js';
-import { goalLine, goalChecks, objectiveSteps, sceneFor, deltas, journalHtml, verdictFor, verdictHtml, actionTally, ordersSize, estimateTokens, TILE_ART, turnBeats, displayAt, turnFeedHtml, shoutFor, BEAT_MS, musicFor, clockUrgent } from '../src/view.js';
+import { goalChecks, checklistHtml, isLimit, sceneFor, deltas, journalHtml, verdictFor, verdictHtml, actionTally, ordersSize, estimateTokens, TILE_ART, turnBeats, displayAt, turnFeedHtml, shoutFor, BEAT_MS, musicFor, clockUrgent } from '../src/view.js';
 import { renderMap, mapLayout } from '../src/map.js';
 
 const play = (state, ...ids) => ids.reduce((s, id) => applyAction(s, id), state);
@@ -14,15 +14,16 @@ function tutorialRetreats() {
   return s;
 }
 
-test('the goal line states what the engine checks: these opponents, submitting at camp, the turn limit, and how a trial is lost', () => {
-  assert.equal(goalLine(newGame('tutorial')), 'Beat the practice rat, then submit at camp within 12 turns. The trial fails if HP reaches 0 or the turns run out.');
-  assert.equal(goalLine(newGame('warning')), 'Beat the practice rat, the Tin boar and Quickfoot, then submit at camp within 16 turns. The trial fails if HP reaches 0 or the turns run out.');
-  assert.equal(goalLine(newGame('prize')), 'Beat Quickfoot and the champion, then submit at camp within 30 turns. The trial fails if HP reaches 0 or the turns run out.');
-  assert.equal(goalLine(newGame('circuit')), 'Beat the practice rat, the Tin boar, Quickfoot and the champion, then submit at camp within 32 turns. The trial fails if HP reaches 0 or the turns run out.');
+test('the checklist names what the engine checks: these opponents, submitting at camp, HP above 0 and the turn limit', () => {
+  const labels = level => goalChecks(newGame(level)).map(check => check.label);
+  assert.deepEqual(labels('tutorial'), ['Beat the practice rat', 'Submit at camp', 'Keep HP above 0', 'Stay within 12 turns']);
+  assert.deepEqual(labels('warning'), ['Beat the practice rat', 'Beat the Tin boar', 'Beat Quickfoot', 'Submit at camp', 'Keep HP above 0', 'Stay within 16 turns']);
+  assert.deepEqual(labels('prize'), ['Beat Quickfoot', 'Beat the champion', 'Submit at camp', 'Keep HP above 0', 'Stay within 30 turns']);
+  assert.deepEqual(labels('circuit'), ['Beat the practice rat', 'Beat the Tin boar', 'Beat Quickfoot', 'Beat the champion', 'Submit at camp', 'Keep HP above 0', 'Stay within 32 turns']);
   const names = { rat: 'practice rat', boar: 'Tin boar', quickfoot: 'Quickfoot' };
   for (const level of LEVEL_ORDER) {
     const rules = LEVELS[level];
-    const line = goalLine(newGame(level));
+    const line = labels(level).join(' / ');
     // Exactly the opponents the engine requires: submitting is offered at camp with all of them beaten, and not with one missing.
     for (const [stamp, name] of Object.entries(names)) assert.equal(line.includes(name), rules.stamps.includes(stamp), `${level}: ${name}`);
     assert.equal(line.includes('champion'), rules.champion, `${level}: champion`);
@@ -77,8 +78,12 @@ test('the goal checklist says, with evidence from the log, why a trial passed or
   const running = goalChecks(boar);
   assert.deepEqual(running.map(check => check.state), ['done', 'open', 'open', 'open', 'open', 'open', 'open']);
   assert.equal(running[1].note, 'Fighting it now');
-  assert.equal(running[4].note, 'Needs the Tin boar, Quickfoot and the champion first');
-  // Every assignment: one row per opponent the goal line names, then submit and the two limits; exactly one cause when lost.
+  // Short while the trial runs (one line beside the stage); the summary at the end lists the turns.
+  let twice = newGame('tutorial');
+  while (twice.log.filter(entry => entry.action === 'retreat').length < 2) twice = applyAction(twice, twice.enemy ? 'retreat' : twice.status === 'ready' ? 'depart' : 'advance');
+  assert.deepEqual([twice.status, goalChecks(twice)[0].note], ['active', 'Retreated 2 times']);
+  assert.equal(running[4].note, 'After the 3 opponents above');
+  // Every assignment: one row per opponent to beat, then submit and the two limits; exactly one cause when lost.
   for (const level of LEVEL_ORDER) {
     const rules = LEVELS[level];
     assert.equal(goalChecks(newGame(level)).length, rules.stamps.length + (rules.champion ? 1 : 0) + 3);
@@ -86,34 +91,63 @@ test('the goal checklist says, with evidence from the log, why a trial passed or
   for (const lost of [tutorialRetreats(), brawl]) assert.equal(goalChecks(lost).filter(check => check.cause).length, 1);
   assert.equal(goalChecks(tutorialWin()).some(check => check.cause), false);
 });
-test('the verdict shows the goal checklist, and the strip marks what a lost trial left undone', () => {
-  const html = verdictHtml(verdictFor(tutorialRetreats()));
-  assert.match(html, /<ul class="checks" aria-label="Goal checklist">/);
-  assert.equal((html.match(/<li class="check /g) || []).length, 4);
-  assert.match(html, /class="check failed limit cause".*Ended the trial/);
-  assert.match(html, /<span class="sr-only">: not met\.<\/span>/);
-  assert.equal((verdictHtml(verdictFor(tutorialWin())).match(/class="check done/g) || []).length, 4);
-  const steps = objectiveSteps(tutorialRetreats());
-  assert.deepEqual(steps.map(step => [step.failed, step.next]), [[true, false], [true, false]]);
-  assert.equal(steps[0].note, 'Retreated on turns 2, 6 and 10');
+test('before the first turn every condition is open, with the first opponent next', () => {
+  assert.deepEqual(goalChecks(newGame('tutorial')).map(row), [
+    'open: Beat the practice rat: Not reached yet',
+    'open: Submit at camp: After the practice rat',
+    'open: Keep HP above 0: Now 40 of 40 HP',
+    'open: Stay within 12 turns: 0 of 12 used',
+  ]);
+  const start = goalChecks(newGame('circuit'));
+  assert.deepEqual(start.map(check => Boolean(check.next)), [true, false, false, false, false, false, false]);
+  assert.equal(start.some(check => check.warn), false);
 });
-test('the checklist ticks steps as they are earned and marks exactly one next step', () => {
-  const start = objectiveSteps(newGame('circuit'));
-  assert.deepEqual(start.map(step => step.label), ['Practice rat', 'Tin boar', 'Quickfoot', 'Champion', 'Submit at camp']);
-  assert.equal(start.filter(step => step.next).length, 1);
-  assert.equal(start[0].next, true);
-  const afterRat = objectiveSteps(play(newGame('circuit'), 'depart', 'quick', 'quick'));
-  assert.equal(afterRat[0].done, true);
-  assert.equal(afterRat[1].next, true);
-  const won = objectiveSteps(tutorialWin());
-  assert.deepEqual(won.map(step => step.done), [true, true]);
-  assert.equal(won.some(step => step.next), false);
-  assert.deepEqual(objectiveSteps(newGame('warning')).map(step => step.label), ['Practice rat', 'Tin boar', 'Quickfoot', 'Submit at camp']);
-  assert.deepEqual(objectiveSteps(newGame('prize')).map(step => step.label), ['Quickfoot', 'Champion', 'Submit at camp']);
+test('during the trial the checklist ticks goals off and moves the next marker; after it, nothing is next', () => {
+  const afterRat = goalChecks(play(newGame('circuit'), 'depart', 'quick', 'quick'));
+  assert.deepEqual(afterRat.slice(0, 2).map(check => [check.state, Boolean(check.next)]), [['done', false], ['open', true]]);
+  // Submitting is next once every opponent is beaten.
+  const ready = goalChecks({ ...newGame('tutorial'), status: 'active', position: 2, stamps: ['rat'] });
+  assert.deepEqual(ready.map(check => Boolean(check.next)), [false, true, false, false]);
+  assert.equal(ready[1].note, 'Ready: head back to camp');
+  for (const over of [tutorialWin(), tutorialRetreats()]) assert.equal(goalChecks(over).some(check => check.next), false);
 });
-test('every stop on the circuit has a portrait', () => {
+test('a limit close to running out is flagged: health at LOW, and the clock when it turns red', () => {
+  const s = { ...newGame('circuit'), status: 'active', turn: 1 };
+  const warned = state => goalChecks(state).filter(check => check.warn).map(check => check.kind);
+  assert.deepEqual(warned(s), []);
+  assert.deepEqual(warned({ ...s, hp: LOW_HP }), ['health']);
+  assert.deepEqual(warned({ ...s, hp: LOW_HP + 1 }), []);
+  assert.deepEqual(warned({ ...s, turn: 24 }), ['turns']);
+  assert.equal(clockUrgent({ ...s, turn: 24 }), true);
+  assert.equal(clockUrgent({ ...s, turn: 23 }), false);
+  // Once the trial is over, the limits are met or not; nothing is a warning any more.
+  assert.deepEqual(warned({ ...s, hp: 5, turn: 30, status: 'won' }), []);
+});
+test('the checklist markup: goals with a count, then limits; marks, the cause, and newly met goals', () => {
+  const lost = checklistHtml(goalChecks(tutorialRetreats()));
+  assert.match(lost, /Goal <span class="checklist-count">0 of 2 done<\/span>/);
+  assert.match(lost, /<ol class="checklist" aria-label="Goal">.*<\/ol>.*<ul class="checklist" aria-label="Limits">/);
+  assert.equal((lost.match(/<li class="check /g) || []).length, 4);
+  assert.match(lost, /class="check failed turns cause".*✗.*All 12 used before submitting <b class="check-cause">Ended the trial<\/b>/);
+  assert.match(lost, /<span class="sr-only">: not met\.<\/span>/);
+  const won = checklistHtml(goalChecks(tutorialWin()), new Set(['Submit at camp']));
+  assert.match(won, /2 of 2 done/);
+  assert.equal((won.match(/class="check done/g) || []).length, 4);
+  assert.equal((won.match(/ fresh"/g) || []).length, 1, 'Only the goal met this turn is stamped');
+  // An open goal shows its opponent; an open limit has no picture. The turn limit carries its gauge.
+  const start = checklistHtml(goalChecks(newGame('tutorial')));
+  assert.match(start, /class="check open stamp next"><span class="check-mark" aria-hidden="true"><img src="\.\/assets\/art\/rat\.webp"/);
+  assert.match(start, /class="check open health"><span class="check-mark" aria-hidden="true"><\/span>/);
+  assert.match(start, /<span class="check-track" aria-hidden="true"><span style="width: 0%"><\/span><\/span>/);
+  assert.match(checklistHtml(goalChecks({ ...newGame('tutorial'), turn: 3 })), /style="width: 25%"/);
+  // The verdict leaves the list to the checklist above the stage, and names what ended the trial.
+  assert.doesNotMatch(verdictHtml(verdictFor(tutorialRetreats())), /class="check/);
+  assert.match(verdictHtml(verdictFor(tutorialRetreats())), /All 12 turns used before the assignment was submitted\./);
+  assert.equal(isLimit(goalChecks(newGame('tutorial'))[2]), true);
+});
+test('every stop on the circuit has a portrait, and so does every goal', () => {
   assert.equal(TILE_ART.length, TILES.length);
-  for (const step of objectiveSteps(newGame('circuit'))) assert.ok(step.art);
+  for (const check of goalChecks(newGame('circuit')).filter(check => !isLimit(check))) assert.ok(check.art);
 });
 test('the stage card reports the opponent exactly as the engine holds it', () => {
   let s = play(newGame('circuit'), 'depart');
@@ -172,7 +206,7 @@ test('the verdict names what went wrong and what the hero mostly did', () => {
   const lost = verdictFor(overdue);
   assert.equal(lost.stamp, 'Overdue');
   assert.equal(lost.text, 'All 12 turns used before the assignment was submitted.');
-  assert.match(verdictHtml(lost), /Needed the practice rat first/, 'the checklist says what was missing');
+  assert.match(checklistHtml(goalChecks(overdue)), /Needed the practice rat first/, 'the checklist says what was missing');
   assert.equal(actionTally(overdue.log).find(t => t.label === 'Retreat').count, 3);
   let dead = newGame('circuit');
   while (availableActions(dead).length) dead = applyAction(dead, dead.enemy ? 'quick' : dead.status === 'ready' ? 'depart' : 'advance');

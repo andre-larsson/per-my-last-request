@@ -320,11 +320,10 @@ async function randomHeroFlow(page) {
   assert.deepEqual([await snap('game.turn'), await snap('game.log[1].source'), await snap('reviewing')], [2, 'random', 2]);
   assert.match(await page.eval('document.querySelector("#turn-feed").textContent'), /Turn 2 · Picked at random/);
   assert.match(await page.eval('document.querySelector("#journal .log-entry .log-source").textContent'), /Random pick/);
-  // The orders are not read, so editing them mid-trial restarts nothing.
-  const typed = await page.eval('document.querySelector("#orders").value');
-  await page.eval(`(() => { const o = document.querySelector('#orders'); o.value = 'Edited during a random trial.'; o.dispatchEvent(new Event('input')); })()`);
+  // The orders are not read, so the letter and its examples are locked, with a note saying why.
+  const lockedLetter = () => page.eval('[document.querySelector("#orders").disabled, [...document.querySelectorAll("[data-preset]")].every(b => b.disabled), !document.querySelector("#orders-off").hidden]');
+  assert.deepEqual(await lockedLetter(), [true, true, true], 'Random locks the orders and the example orders');
   assert.equal(await page.eval('document.querySelector("#orders-notice").hidden'), true);
-  assert.doesNotMatch(await page.eval('document.querySelector("#run").textContent'), /Restart/);
   // The rest of the trial, unattended, to its end.
   await page.eval(`QuestDemo.setPace('normal'); QuestDemo.setPace('instant')`); // Not the Pace button: it would store the pace.
   await page.click('#run');
@@ -333,15 +332,16 @@ async function randomHeroFlow(page) {
   assert.equal(log.every(entry => entry.source === 'random' || entry.source === 'auto'), true, 'Only random picks and forced moves');
   assert.equal(await snap('modelReady'), false, 'No model was loaded');
   assert.match(await page.eval('document.querySelector("#verdict").textContent'), /picked at random/, 'The verdict does not credit the orders');
-  // The goal checklist says why: the rat, submitting, and the two limits; a lost trial names exactly one cause.
-  const checks = await page.eval('[...document.querySelectorAll("#verdict .check")].map(li => ({ cls: li.className, text: li.textContent }))');
+  // The running checklist is now the summary: the rat, submitting, and the two limits; a lost trial names exactly one cause.
+  const checks = await page.eval('[...document.querySelectorAll("#checklist .check")].map(li => ({ cls: li.className, text: li.textContent }))');
   assert.equal(checks.length, 4);
   assert.equal(checks.filter(c => /\bcause\b/.test(c.cls)).length, (await snap('game.status')) === 'lost' ? 1 : 0);
-  if ((await snap('game.status')) === 'lost') assert.equal(await page.eval('document.querySelectorAll("#objective .goal.failed").length') > 0, true, 'The strip marks what was left undone');
+  assert.equal(checks.some(c => /\bopen\b|\bnext\b/.test(c.cls)), false, 'After the trial every row is met or not');
+  assert.equal(await page.eval('document.querySelectorAll("#verdict .check").length'), 0, 'The verdict does not repeat the checklist');
   assert.match(await page.eval('document.querySelector("#run").textContent'), /Run again/);
-  await page.eval(`(() => { const o = document.querySelector('#orders'); o.value = ${JSON.stringify(typed)}; o.dispatchEvent(new Event('input')); })()`);
   await page.click('#reset');
   await page.click('button[data-mode="manual"]');
+  assert.deepEqual(await lockedLetter(), [false, false, false], 'Leaving Random unlocks the letter');
 }
 /** Chooses a pace with the real Pace button, which cycles Turn by turn → Normal → Fast. */
 async function choosePace(page, name) {
@@ -475,9 +475,12 @@ try {
     await page.eval(`(() => { const o = document.querySelector('#orders'); o.value = ${JSON.stringify(typed)}; o.dispatchEvent(new Event('input')); })()`);
     assert.match(await page.eval('document.querySelector("#orders-size").textContent'),/^\d+ words · about \d+ tokens$/);
     // This policy only drives deterministic engine/UI verification. It is not an LLM substitute.
+    // The checklist's notes change every turn, but its height does not, so it never pushes the stage and controls around.
+    const checklistHeights = new Set();
     for (let i=0;i<40;i++) {
       const s = await page.eval('QuestDemo.snapshot().game');
       if (s.status==='won' || s.status==='lost') break;
+      checklistHeights.add(await page.eval('document.querySelector("#checklist").offsetHeight'));
       const action = await page.eval(`(() => {
         const s=QuestDemo.snapshot().game;
         const has=id=>Boolean(document.querySelector('[data-action="'+id+'"]'));
@@ -494,11 +497,12 @@ try {
     }
     const result = await page.eval('QuestDemo.snapshot()');
     assert.equal(result.game.status,'won');
+    assert.equal(checklistHeights.size,1,`The checklist keeps one height through the trial (${[...checklistHeights]})`);
     assert.equal(result.game.log.every(entry=>entry.source==='manual'),true);
     assert.match(await page.eval('document.querySelector("#verdict").textContent'),/Assignment accepted/);
-    assert.equal(await page.eval('document.querySelectorAll("#objective .goal.done").length'),5,'All five checklist steps are ticked');
+    assert.equal(await page.eval('document.querySelectorAll("#checklist ol .check.done").length'),5,'All five goals are ticked');
     assert.match(await page.eval('document.querySelector("#verdict").textContent'),/Commendations \d of 4/,'The verdict lists commendations');
-    assert.deepEqual(await page.eval('[...document.querySelectorAll("#verdict .check")].map(li => li.className)'),Array(7).fill('check done').map((c,i)=>i>=5?`${c} limit`:c),'The goal checklist: four opponents, submit, and both limits, all met');
+    assert.deepEqual(await page.eval('[...document.querySelectorAll("#checklist .check")].map(li => li.className.replace(/ fresh$/, ""))'),['check done stamp','check done stamp','check done stamp','check done champion','check done submit','check done health','check done turns'],'The checklist after the win: four opponents, submit, and both limits, all met');
     assert.match(await page.eval('document.querySelector("#sword-value").textContent'),/buckler/i);
     assert.equal(await page.eval('document.querySelector("#next-level").hidden'),true,'The full circuit is the last assignment');
     await page.screenshot(join(artifacts,'victory.png'));
@@ -534,14 +538,28 @@ try {
       assert.equal(await page.eval('QuestDemo.snapshot().game.level'),name);
       assert.equal(await page.eval(`document.querySelector('[data-level="${name}"]').getAttribute('aria-pressed')`),'true');
       assert.equal(await page.eval('document.querySelectorAll("#map .node").length'),stops,`${name} draws only its own stops`);
-      assert.equal(await page.eval('document.querySelectorAll("#objective .goal").length'),goals);
-      // The goal is stated in words above the checklist, for the assignment on screen, and stays during the trial.
-      const goal = () => page.eval('(() => { const g = document.querySelector("#goal-text"); return g.checkVisibility() ? g.textContent : ""; })()');
-      assert.match(await goal(), new RegExp(`^Beat .+, then submit at camp within ${await page.eval('QuestDemo.snapshot().game.turnLimit')} turns\\. The trial fails if HP reaches 0`), `${name} states its goal`);
-      const stated = await goal();
-      for (const id of win) await page.click(`[data-action="${id}"]`);
+      // The running checklist: open before the first move, with this assignment's goals and turn limit, ticked off during
+      // the trial (the first win ticks one goal and moves the next marker on), and all met at the end.
+      const rows = () => page.eval('[...document.querySelectorAll("#checklist .check")].filter(li => li.checkVisibility()).map(li => li.className.replace(/ fresh$/, "") + " | " + li.querySelector(".check-label").firstChild.textContent + " | " + li.querySelector(".check-note").textContent)');
+      const limit = await page.eval('QuestDemo.snapshot().game.turnLimit');
+      const before = await rows();
+      assert.equal(before.length, goals + 2);
+      assert.equal(before.filter(r => /^check open/.test(r)).length, goals + 2, `${name}: everything is open before the first move`);
+      assert.match(before[0], / next \| Beat /);
+      assert.equal(before.at(-1), `check open turns | Stay within ${limit} turns | 0 of ${limit} used`);
+      let ticked = false;
+      for (const id of win) {
+        await page.click(`[data-action="${id}"]`);
+        const now = await rows();
+        if (!ticked && now.some(r => /^check done stamp/.test(r))) {
+          ticked = true;
+          assert.match(now.find(r => / next /.test(r)) || '', /^check open/, `${name}: the next marker moves on after the first win`);
+          assert.match(now.at(-1), new RegExp(`\\| \\d+ of ${limit} used$`));
+        }
+      }
+      assert.equal(ticked, true, `${name}: a goal was ticked during the trial`);
       assert.equal(await page.eval('QuestDemo.snapshot().game.status'),'won',`${name} is won through the controls`);
-      assert.equal(await goal(), stated, 'The goal stays on screen to the end');
+      assert.equal((await rows()).filter(r => /^check done/.test(r)).length, goals + 2, `${name}: every row met at the end`);
       assert.equal(await page.eval('document.querySelector("#next-level").hidden'),false);
     }
     await page.click('#next-level');
@@ -554,7 +572,7 @@ try {
     await publishedSiteHasNoSandbox(page);
     await writeFile(join(artifacts,'browser-report.json'),JSON.stringify({kind:'manual UI verification plus LLM-mode interface flow with a stub worker; no model inference',result,errors:page.errors},null,2));
     console.log(`Browser UI passed: desktop, 390px, 360px, potion costs, restart, complete victory in ${result.game.turn} turns, music cues and switch.`);
-    console.log('Random hero checked without a model: turn by turn, pause holds the pick, edited orders ignored, a whole trial, labels and verdict.');
+    console.log('Random hero checked without a model: turn by turn, pause holds the pick, orders locked, a whole trial, labels, verdict and checklist.');
     console.log('Published build checked: no Manual sandbox controls or text; Random offered.');
     console.log('LLM-mode interface flow passed with a stub worker (no inference): load, thinking, stale reply, parse failure and retry, edited orders, turn playback with prepared decisions, pause during playback and during thinking, turn-by-turn pace, skip, temperature.');
   } else {

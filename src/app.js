@@ -3,7 +3,7 @@ import { parseDecision, decisionMessages } from './protocol.js';
 import { LocalModel } from './model.js';
 import { renderMap } from './map.js';
 import { MODELS, findModel, modelSize, checkDevice, recommendModel, selectedModelAdvice } from './models.js';
-import { escapeHtml, artUrl, goalLine, objectiveSteps, sceneFor, journalHtml, verdictFor, verdictHtml, stampTarget, ordersSize, turnBeats, displayAt, turnFeedHtml, shoutFor, PACES, PACE_ORDER, BEAT_MS, clockUrgent, musicFor } from './view.js';
+import { escapeHtml, artUrl, goalChecks, checklistHtml, isLimit, sceneFor, journalHtml, verdictFor, verdictHtml, stampTarget, ordersSize, turnBeats, displayAt, turnFeedHtml, shoutFor, PACES, PACE_ORDER, BEAT_MS, musicFor } from './view.js';
 import { unlockSound, setSoundEnabled, playSound } from './sound.js';
 import { unlockMusic, setMusicEnabled, setMusic, musicPlaying, musicState } from './music.js';
 
@@ -267,24 +267,17 @@ function renderBrief(s) {
     tab.setAttribute('aria-pressed', String(tab.dataset.level === level));
     tab.disabled = locked();
   });
-  $('goal-text').textContent = goalLine(s);
-  const steps = objectiveSteps(s);
-  const done = new Set(steps.filter(step => step.done).map(step => step.label));
+  // One checklist from before the first turn to the end: it ticks goals off as they are met, and after the trial it is the summary.
+  const checks = goalChecks(s);
+  const done = new Set(checks.filter(check => check.state === 'done' && !isLimit(check)).map(check => check.label));
   const earlier = painted.objectiveEpoch === epoch ? painted.objectiveDone : done;
-  paint('objective', `${epoch}:${level}:${steps.map(step => `${+step.done}${+step.next}${+step.failed}${step.note}`).join('')}`, () => {
-    $('objective').innerHTML = steps.map(step => {
-      const fresh = step.done && !earlier.has(step.label); // Newly earned: gets the stamping animation once.
-      // The evidence ("Beaten on turn 3", "Retreated on turn 2") shows on hover; the report's checklist shows it at the end.
-      return `<li class="goal ${step.kind}${step.done ? ' done' : ''}${step.failed ? ' failed' : ''}${step.next ? ' next' : ''}${fresh ? ' fresh' : ''}" title="${escapeHtml(step.note)}"><span class="goal-mark" aria-hidden="true">${step.done ? '✓' : step.failed ? '✗' : `<img src="${artUrl(step.art)}" alt="" onerror="this.remove()">`}</span><span class="goal-text"><span class="sr-only">${step.kind === 'stamp' ? 'Stamp: ' : step.kind === 'champion' ? 'Defeat: ' : ''}</span>${escapeHtml(step.label)}<span class="sr-only">${step.done ? ' (done)' : step.failed ? ` (not done: ${escapeHtml(step.note)})` : ''}</span></span></li>`;
-    }).join('');
+  paint('checklist', `${epoch}:${level}:${checks.map(check => `${check.state}${+Boolean(check.next)}${+Boolean(check.warn)}${check.note}`).join('|')}`, () => {
+    // Newly met goals get the stamping animation once.
+    $('checklist').innerHTML = checklistHtml(checks, new Set([...done].filter(label => !earlier.has(label))));
   });
+  $('checklist').classList.toggle('over', s.status === 'won' || s.status === 'lost');
   painted.objectiveEpoch = epoch;
   painted.objectiveDone = done;
-  const left = s.turnLimit - s.turn;
-  $('turn-value').textContent = `${s.turn} / ${s.turnLimit}`;
-  $('turn-bar').style.width = `${s.turn / s.turnLimit * 100}%`;
-  $('turn-left').textContent = left === 0 ? 'none left' : `${left} left`;
-  $('deadline').className = `deadline${clockUrgent(s) ? ' urgent' : ''}`;
 }
 /** The exact prompt behind a decision: the one being made now, or, during playback, the one just made. */
 function renderPrompt(state, actions) {
@@ -437,8 +430,11 @@ function countOrderTokens() {
 }
 function renderOrders() {
   const changed = ordersEdited();
-  $('orders').disabled = locked();
+  // The Random hero never reads the orders, so the letter and its examples are locked while it plays.
+  const unread = mode === 'random';
+  $('orders').disabled = locked() || unread;
   $('orders-notice').hidden = !changed;
+  $('orders-off').hidden = !unread;
   // Size only. Tokens are exact once the loaded model has counted this text, and an estimate before that.
   const counted = model.ready && tokenCount?.model === model.model ? { ...tokenCount, by: findModel(tokenCount.model).name } : null;
   const size = ordersSize(typedOrders(), counted);
@@ -447,7 +443,7 @@ function renderOrders() {
   $('orders-size').title = size.note;
   countOrderTokens();
   $('peek-text').textContent = (game.turn > 0 && runOrders) || typedOrders() || 'No orders written.';
-  document.querySelectorAll('[data-preset]').forEach(button => { button.disabled = locked(); });
+  document.querySelectorAll('[data-preset]').forEach(button => { button.disabled = locked() || unread; });
 }
 function renderController() {
   document.querySelectorAll('[data-mode]').forEach(button => {

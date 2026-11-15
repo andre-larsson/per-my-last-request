@@ -95,7 +95,7 @@ button:not(:disabled):active { transform: translateY(1px); }
 .field { grid-area: field; min-width: 0; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
 .journal { grid-area: report; position: sticky; top: 16px; display: flex; flex-direction: column; max-height: calc(100vh - 32px); background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
 
-/* Trial: heading, checklist, deadline */
+/* Trial: heading and checklist */
 .field-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding: 16px 20px 12px; container-type: inline-size; }
 .tabs { display: flex; padding: 3px; border-radius: var(--radius); background: var(--inset); border: 1px solid var(--line); }
 .tabs button { min-height: 38px; padding: 6px 10px; border: 1px solid transparent; border-radius: 3px; background: none; color: var(--muted); font-size: 14px; font-weight: 600; white-space: nowrap; }
@@ -108,31 +108,38 @@ button:not(:disabled):active { transform: translateY(1px); }
   .tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px; width: 100%; }
   .tabs button { padding-inline: 8px; text-align: left; }
 }
-.brief { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 16px; padding: 4px 20px 16px; }
-/* The win and loss conditions, in words, for the whole trial. The checklist under it ticks them off. */
-.brief-goal { width: 100%; font-size: 14px; line-height: 1.45; color: var(--ink-soft); }
-.brief-goal .section-label { margin-right: 6px; color: var(--ochre); }
-.objective { display: flex; }
-.goal { position: relative; display: grid; justify-items: center; gap: 4px; width: 76px; text-align: center; }
-.goal + .goal::before { content: ''; position: absolute; top: 19px; right: calc(50% + 22px); width: 32px; border-top: 2px dotted var(--line-strong); }
-.goal-mark { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; border: 2px dashed var(--line-strong); background: var(--art); color: var(--muted); font-size: 18px; line-height: 1; overflow: hidden; }
-.goal-mark img { width: 100%; height: 100%; object-fit: cover; opacity: .9; filter: var(--art-filter); }
-.goal.stamp:not(.done) .goal-mark, .goal.champion:not(.done) .goal-mark { border-color: var(--rust); }
-.goal.next .goal-mark { box-shadow: 0 0 0 4px var(--ochre-soft); border-color: var(--ochre); }
-.goal.done .goal-mark { border: 2px solid var(--green); background: var(--green); color: var(--green-ink); font-weight: 800; transform: rotate(-8deg); }
-.goal.failed .goal-mark { border: 2px solid var(--rust); background: var(--blood); color: var(--ink); font-weight: 800; }
-.goal.failed .goal-text { color: var(--rust); }
-.goal.fresh .goal-mark { animation: stamp-down .5s cubic-bezier(.2, 1.4, .4, 1) both; }
-.goal-text { font-size: 13px; font-weight: 650; line-height: 1.2; color: var(--muted); }
-.goal.next .goal-text, .goal.done .goal-text { color: var(--ink); }
-.deadline { display: grid; grid-template-columns: auto auto; align-items: baseline; column-gap: 8px; row-gap: 4px; min-width: 132px; }
-.deadline-label { font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
-.deadline strong { justify-self: end; font-size: 24px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
-.deadline-track { grid-column: 1 / -1; height: 8px; border-radius: 2px; background: var(--inset); box-shadow: inset 0 0 0 1px var(--line); overflow: hidden; }
-#turn-bar { height: 100%; width: 0; border-radius: 2px; background: var(--green); transition: width .4s; }
-.deadline-left { grid-column: 1 / -1; justify-self: end; font-size: 13px; font-weight: 600; color: var(--muted); }
-.deadline.urgent strong, .deadline.urgent .deadline-left { color: var(--rust); }
-.deadline.urgent #turn-bar { background: var(--rust); }
+/* The running checklist: the goals, and the limits beside them. It is open before the first turn, ticks goals off during
+   the trial, and after it is the summary of what was met, with the evidence. */
+.brief { display: grid; grid-template-columns: minmax(0, 1fr) minmax(180px, 12.5rem); gap: 12px 28px; padding: 4px 20px 16px; }
+.checklist-part .section-label { display: block; margin-bottom: 8px; color: var(--ochre); }
+.checklist-count { margin-left: 6px; color: var(--muted); letter-spacing: .04em; }
+.checklist { display: grid; grid-template-columns: 26px max-content minmax(0, 1fr); align-items: center; gap: 6px 10px; margin: 0; padding: 0; list-style: none; }
+.check { display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; align-items: center; row-gap: 3px; font-size: 14px; line-height: 1.35; }
+.check-mark { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; border: 2px dashed var(--line-strong); background: var(--art); color: var(--muted); font-size: 14px; font-weight: 800; line-height: 1; overflow: hidden; }
+.check-mark img { width: 100%; height: 100%; object-fit: cover; opacity: .9; filter: var(--art-filter); }
+.limits .check-mark { background: none; }
+.check.next .check-mark { border: 2px solid var(--ochre); box-shadow: 0 0 0 3px var(--ochre-soft); }
+.check.done .check-mark { border: 2px solid var(--green); background: var(--green); color: var(--green-ink); transform: rotate(-8deg); }
+.check.failed .check-mark { border: 2px solid var(--rust); background: var(--blood); color: var(--ink); }
+.check.fresh .check-mark { animation: stamp-down .5s cubic-bezier(.2, 1.4, .4, 1) both; }
+.check-label { font-weight: 650; color: var(--ink-soft); }
+.check.next .check-label, .check.done .check-label { color: var(--ink); }
+.check.failed .check-label, .check.warn .check-label { color: var(--rust); }
+.check-note { font-size: 13px; color: var(--muted); }
+.check.next .check-note, .check.cause .check-note { color: var(--ink); }
+.check.warn .check-note { color: var(--rust); font-weight: 650; }
+.check-cause { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 2px; background: var(--blood); color: var(--ink); font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+/* Beside the goals, each limit's evidence sits under its name. */
+.limits .checklist { grid-template-columns: 26px minmax(0, 1fr); align-items: start; row-gap: 10px; }
+.limits .check-note, .check-track { grid-column: 2; }
+.check-track { height: 6px; margin-top: 2px; border-radius: 2px; background: var(--inset); box-shadow: inset 0 0 0 1px var(--line); overflow: hidden; }
+.check-track span { display: block; height: 100%; border-radius: 2px; background: var(--green); }
+.check.warn .check-track span, .check.failed .check-track span { background: var(--rust); }
+/* Where the controls sit in the page, under the stage, each note keeps to one line while the trial runs, so nothing below
+   the checklist moves as the notes change. The full note is in its title; after the trial, notes wrap. */
+@media (min-width: 900px) {
+  .brief:not(.over) .check-note { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+}
 
 /* The stage: the lit pit in a dark room, so the eye lands here first */
 .stage { position: relative; padding: 20px; border-block: 1px solid var(--edge); background: radial-gradient(110% 90% at 50% 0%, #431f10 0%, #251209 35%, #110a07 65%, #070504 95%); color: var(--ink); }
@@ -239,18 +246,6 @@ button:not(:disabled):active { transform: translateY(1px); }
 .verdict h3 { font: 400 26px/1.15 var(--serif); letter-spacing: -.01em; }
 .verdict p { font-size: 15px; }
 .verdict-hint { font-weight: 650; }
-/* Why the trial passed or failed: one line per condition of the goal, with the evidence. */
-.checks { display: grid; gap: 6px; margin: 4px 0 2px; padding: 10px 12px; list-style: none; border: 1px solid var(--line); border-radius: var(--radius); background: var(--inset); }
-.check { display: grid; grid-template-columns: 20px minmax(0, 13em) minmax(0, 1fr); align-items: baseline; gap: 2px 10px; font-size: 14px; line-height: 1.4; }
-.check:not(.limit) + .limit { margin-top: 4px; padding-top: 8px; border-top: 1px dashed var(--line); }
-.check-mark { font-weight: 800; text-align: center; }
-.check.done .check-mark { color: var(--green); }
-.check.failed .check-mark, .check.failed .check-label { color: var(--rust); }
-.check.open .check-mark { color: var(--muted); }
-.check-label { font-weight: 650; }
-.check-note { color: var(--muted); }
-.check.cause .check-note { color: var(--ink); }
-.check-cause { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 2px; background: var(--blood); color: var(--ink); font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
 .commendations { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .commendations .section-label { flex-basis: 100%; }
 .medal { padding: 3px 10px; border-radius: 3px; border: 1px dashed var(--line-strong); color: var(--muted); font-size: 14px; font-weight: 650; white-space: nowrap; }
@@ -347,6 +342,8 @@ textarea:disabled { opacity: .75; }
 .presets button { flex: 1 1 auto; padding: 8px 12px; border: 1px solid var(--line-strong); background: var(--raised); font-size: 14px; font-weight: 600; box-shadow: 0 2px 0 var(--edge); }
 .presets button:hover:not(:disabled) { background: var(--ochre-soft); border-color: var(--ochre); color: var(--ochre); }
 body[data-mode='manual'] .letter textarea, body[data-mode='random'] .letter textarea { opacity: .6; }
+/* The Random hero does not read the letter: it is locked and dimmed (disabled buttons dim themselves), and a note says why. */
+body[data-mode='random'] .letter :is(.salutation, .letter-signoff) { opacity: .5; }
 
 /* Hero controller */
 .controller { display: grid; gap: 12px; }
@@ -481,13 +478,11 @@ footer { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8p
   .card { padding: 16px; }
   .field-head { padding: 12px 12px 10px; }
   .field-head .step-head { display: none; }
-  .brief { flex-direction: column; align-items: stretch; gap: 12px; padding: 4px 12px 14px; }
-  .objective { justify-content: space-between; }
-  .goal { width: auto; flex: 1; }
-  .goal + .goal::before { width: calc(100% - 46px); right: calc(50% + 23px); }
-  .deadline { grid-template-columns: auto auto minmax(0, 1fr) auto; align-items: center; column-gap: 10px; }
-  .deadline strong { font-size: 20px; }
-  .deadline-track, .deadline-left { grid-column: auto; }
+  /* One column: the limits under the goals, in the same three columns so the rows line up. */
+  .brief { grid-template-columns: minmax(0, 1fr); gap: 12px; padding: 4px 12px 14px; }
+  .checklist, .limits .checklist { grid-template-columns: 26px 10.5em minmax(0, 1fr); align-items: center; row-gap: 6px; }
+  .limits .check-note { grid-column: 3; }
+  .check-track { grid-column: 2 / -1; }
   .stage { padding: 12px; }
   .fighters { gap: 8px; }
   .fighter { grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 8px; }
@@ -506,8 +501,6 @@ footer { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8p
   .stage-foot { margin-top: 12px; }
   .verdict { padding: 14px; }
   .verdict-body { padding-right: 0; padding-top: 44px; }
-  .check { grid-template-columns: 20px minmax(0, 1fr); }
-  .check-note { grid-column: 2; }
   .verdict h3 { font-size: 23px; }
   .rubber { top: 10px; right: auto; left: 14px; font-size: 17px; }
   .options-wrap { padding-inline: 12px; }

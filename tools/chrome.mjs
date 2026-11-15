@@ -99,8 +99,22 @@ export async function launch({ softwareGpu = false, hardwareGpu = false, profile
     async click(selector, timeout = 8000) {
       const started = Date.now();
       while (Date.now()-started < timeout && !(await page.eval(`(() => { const e=document.querySelector(${JSON.stringify(selector)}); return Boolean(e && !e.disabled); })()`))) await sleep(60);
-      await page.eval(`document.querySelector(${JSON.stringify(selector)})?.scrollIntoView({ block: 'center' })`);
-      const point = await page.eval(`(() => { const e=document.querySelector(${JSON.stringify(selector)}); if (!e || e.disabled) throw Error('Missing or disabled control'); const r=e.getBoundingClientRect(); return {x:r.x+r.width/2,y:r.y+r.height/2}; })()`);
+      // Aim only once the control is really under the pointer. Right after a viewport change, layout can still move
+      // (media-query listeners re-render a frame later), and a click at stale coordinates would land on something else.
+      const point = await page.eval(`(async () => {
+        const e = document.querySelector(${JSON.stringify(selector)});
+        if (!e || e.disabled) throw Error('Missing or disabled control');
+        const frame = () => new Promise(done => { requestAnimationFrame(() => requestAnimationFrame(done)); setTimeout(done, 100); });
+        for (let attempt = 0; attempt < 20; attempt++) {
+          e.scrollIntoView({ block: 'center' });
+          await frame();
+          const r = e.getBoundingClientRect();
+          const p = { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+          const hit = document.elementFromPoint(p.x, p.y);
+          if (hit && (hit === e || e.contains(hit))) return p;
+        }
+        throw Error('Control not under the pointer: ' + ${JSON.stringify(JSON.stringify(selector))});
+      })()`);
       await send('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',clickCount:1,...point});
       await send('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',clickCount:1,...point});
     },
