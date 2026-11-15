@@ -15,7 +15,7 @@ export const modelSize = gb => gb < 1 ? `${Math.round(gb * 1000)} MB` : `${gb} G
 // Do not infer VRAM from a GPU name, navigator.deviceMemory, or a per-buffer allocation limit.
 export async function checkDevice({ gpu = globalThis.navigator?.gpu, secure = globalThis.isSecureContext, cpu = typeof WebAssembly === 'object' && typeof Worker === 'function', timeoutMs = 6000 } = {}) {
   const base = { cpu, gpu: false, software: false, name: '', limits: {}, reason: '' };
-  if (secure === false) return { ...base, reason: 'WebGPU needs HTTPS or localhost. Open the local game address.' };
+  if (secure === false) return { ...base, reason: 'WebGPU needs a secure page. Open the game at its https:// address.' };
   if (!gpu) return { ...base, reason: 'WebGPU is unavailable in this browser.' };
   let timer;
   try {

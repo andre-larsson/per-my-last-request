@@ -160,6 +160,9 @@ User choices: own cues for the desk, the trial and the win and loss stingers (fi
 ## Browser setup guide (added 2026-11-14)
 
 - **Get WebGPU on Windows, Mac or Linux** sits under the model status in **Who plays the hero?**. It is a collapsed four-line guide: Windows, Mac, Linux, and "still not working?". It opens by itself when the device check finds no WebGPU or only software graphics, and the blocked status line points to it. The README has the full table and the Linux command line.
+- **The page gives no local-run instructions** (the user's call, 2026-11-15: the game is played online). No `npm`, localhost or repository steps in page text; the browser test checks for `npm ` and `localhost`. Those belong in the README.
+- **The Linux line gives a Chrome start-up command, not `chrome://flags`.** On Chrome 156, the flags page has no ANGLE backend entry, and without `--use-angle=vulkan` the RTX 4090 host offered only SwiftShader (measured 2026-11-15; see `VERIFICATION.md`). The command is the tested `npm run play` set.
+- **"Still not working?" warns about `chrome://gpu`.** The user's Chrome 156 (X11, NVIDIA, no flags) said "WebGPU: Hardware accelerated" while `requestAdapter()` returned null. The guide sends players to the game's own device check instead.
 - Browser versions come from the gpuweb implementation-status wiki (last edited 2026-10-02). Only Chrome on Linux with NVIDIA (X11, `npm run play` flags) is tested. Update both the guide and the README table when browsers ship (Firefox on Linux is expected in 2026).
 - `npm run play` now finds Chrome (falling back to Edge) in the standard macOS and Windows install folders. That path is untested on those systems; `CHROME=` still overrides it.
 

@@ -32,13 +32,15 @@ The local model needs WebGPU. The experimental CPU model works without it, and s
 |---|---|---|---|
 | **Windows** | 113+, on by default. Windows on ARM: enable `chrome://flags/#enable-unsafe-webgpu`. | 141+, on by default. | — |
 | **macOS** | 113+, on by default. | 147+ on Apple silicon. Intel Macs: Nightly only; use Chrome, Edge or Safari. | 26+, on by default. |
-| **Linux** | On by default in Chrome 144+ for Intel Gen12 and newer, and in Chrome 147+ for NVIDIA (driver 535.183.01+) on Wayland. Other setups: use `npm run play`, or see below. | Nightly only. Mozilla plans to ship on Linux in 2026. | — |
+| **Linux** | On by default in Chrome 144+ for Intel Gen12 and newer, and in Chrome 147+ for NVIDIA (driver 535.183.01+) on Wayland. Other setups, such as NVIDIA on X11: start Chrome with the flags below, or use `npm run play`. | Nightly only. Mozilla plans to ship on Linux in 2026. | — |
 
-To use your own Chrome on another Linux setup, close every Chrome window, then start it with the flags from the WebGPU status page and open the game:
+To use your own Chrome on another Linux setup, close every Chrome window, then start it with these flags and open the game. They are the flags `npm run play` uses, and the command the in-game guide gives:
 
 ```sh
-google-chrome --enable-unsafe-webgpu --ozone-platform=x11 --use-angle=vulkan --enable-features=Vulkan,VulkanFromANGLE http://localhost:4173
+google-chrome --enable-unsafe-webgpu --use-angle=vulkan --enable-features=Vulkan https://a403.space/per-my-last-request/
 ```
+
+`chrome://flags` alone is not enough here. Chrome 156 on Linux has entries for WebGPU (`#enable-unsafe-webgpu`) and Vulkan (`#enable-vulkan`), but none that sets the ANGLE backend, and `#default-angle-vulkan` does not replace `--use-angle=vulkan`. Without that switch, Chrome offers pages only its software adapter. Also, `chrome://gpu` can report "WebGPU: Hardware accelerated" while pages get no adapter at all. The WebGPU status page lists more flags (`--ozone-platform=x11`, `VulkanFromANGLE`) for other setups.
 
 If the game still reports no WebGPU, or reports software graphics:
 

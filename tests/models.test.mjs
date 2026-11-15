@@ -46,7 +46,7 @@ test('per-buffer limits reduce candidates but are never treated as total VRAM', 
 test('device check handles unavailable, refused, insecure, failed and stalled adapters', async () => {
   const options = { secure: true, cpu: true };
   assert.equal((await checkDevice({ ...options, gpu: null })).gpu, false);
-  assert.match((await checkDevice({ ...options, gpu: {}, secure: false })).reason, /HTTPS or localhost/);
+  assert.match((await checkDevice({ ...options, gpu: {}, secure: false })).reason, /secure page[\s\S]*https:\/\//);
   assert.match((await checkDevice({ ...options, gpu: { requestAdapter: async () => null } })).reason, /could not provide/);
   assert.match((await checkDevice({ ...options, gpu: { requestAdapter: async () => { throw new Error('blocked'); } } })).reason, /blocked/);
   assert.match((await checkDevice({ ...options, gpu: { requestAdapter: () => new Promise(() => {}) }, timeoutMs: 5 })).reason, /timed out/);

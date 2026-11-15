@@ -225,10 +225,10 @@
             <ul class="setup-list">
               <li><strong>Windows</strong>Chrome or Edge 113+, or Firefox 141+. WebGPU is on by default.</li>
               <li><strong>Mac</strong>Chrome or Edge 113+, or Safari 26+. Firefox 147+ works on Apple silicon Macs only.</li>
-              <li><strong>Linux</strong>Chrome 144+ turns WebGPU on for Intel graphics (Gen12 and newer), and Chrome 147+ for NVIDIA on Wayland. For any other setup, start the game with <code>npm run play</code>: it opens Chrome with the WebGPU flags. Firefox on Linux has WebGPU only in Nightly so far.</li>
-              <li><strong>Still not working?</strong>Turn on hardware acceleration in the browser settings, update your graphics driver, restart the browser, and reload this page. <code>chrome://gpu</code> (in Firefox, <code>about:support</code>) shows whether WebGPU is on.</li>
+              <li><strong>Linux</strong>Chrome 144+ turns WebGPU on for Intel graphics (Gen12 and newer), and Chrome 147+ for NVIDIA on Wayland. On other setups, such as NVIDIA on X11, close every Chrome window, start Chrome from a terminal with this command, then open this page again:<code class="command"><span>google-chrome</span> <span>--enable-unsafe-webgpu</span> <span>--use-angle=vulkan</span> <span>--enable-features=Vulkan</span></code>Settings in <code>chrome://flags</code> are not enough: they cannot set the Vulkan backend. Firefox on Linux has WebGPU only in Nightly so far.</li>
+              <li><strong>Still not working?</strong>Turn on hardware acceleration in the browser settings, update your graphics driver, restart the browser, and reload this page. To check, open <em>Change model or check this device</em> below. Do not trust <code>chrome://gpu</code> alone: it can say “WebGPU: Hardware accelerated” while Chrome still gives web pages no GPU.</li>
             </ul>
-            <p>Tested here: Chrome on Linux with an NVIDIA GPU. The other lines come from the <a href="https://github.com/gpuweb/gpuweb/wiki/Implementation-Status" target="_blank" rel="noopener">WebGPU status page</a> (October 2026), which also lists the Chrome flags for other Linux setups.</p>
+            <p>Tested here: Chrome on Linux (X11) with an NVIDIA GPU and the Linux flags above. The other lines come from the <a href="https://github.com/gpuweb/gpuweb/wiki/Implementation-Status" target="_blank" rel="noopener">WebGPU status page</a> (October 2026), which also lists the Chrome flags for other Linux setups.</p>
           </details>
           <details id="model-settings" class="model-settings">
             <summary>Change model or check this device</summary>

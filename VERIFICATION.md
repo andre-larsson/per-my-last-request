@@ -2,6 +2,27 @@
 
 Original prototype checks on 2026-11-13, with model-selection checks added on 2026-11-14. This file distinguishes game-rule checks, browser UI checks, and genuine model inference.
 
+## WebGPU guide without local-run steps (2026-11-15)
+
+The player's Chrome 156 (Linux X11, RTX 4090, no flags) showed "WebGPU: Hardware accelerated" in `chrome://gpu`, but the game found no adapter and offered only the CPU model. The guide now gives a Chrome start-up command for Linux instead of `npm run play`. The insecure-page message no longer says "Open the local game address".
+
+Which settings give a page the RTX 4090. Measured with headless Chrome 156 on this host (`--disable-vulkan-surface`), reading `requestAdapter()` on a localhost page:
+
+| Settings | Adapter |
+|---|---|
+| none | null (as on the player's Chrome) |
+| `--enable-unsafe-webgpu --use-angle=vulkan --enable-features=Vulkan` | **nvidia / lovelace** |
+| `--enable-unsafe-webgpu` with only one of `--use-angle=vulkan` or `--enable-features=Vulkan` | SwiftShader (software) |
+| `chrome://flags` (seeded in Local State): `#enable-unsafe-webgpu` + `#enable-vulkan`, with or without `#default-angle-vulkan`, `#vulkan-from-angle` or any `#use-angle` index | SwiftShader (software) |
+| `#enable-unsafe-webgpu` + `#enable-vulkan`, plus the `--use-angle=vulkan` switch | **nvidia / lovelace** |
+
+So the ANGLE backend can only be set on the command line. The Linux flags page has no entry for it.
+
+- `npm test` passed (56 tests).
+- `npm run test:browser` passed. The guide opens when WebGPU is missing and contains the Linux command, the page text contains no `npm ` or `localhost`, and the open guide fits at 360 px with no horizontal overflow. Screenshot: `artifacts/webgpu-help-phone.png`. `node tools/shots.mjs`: no rendered text under 12 px.
+
+Not checked: the command in a headed Chrome window (earlier headed `npm run play` runs used the same switches); the live site (not pushed).
+
 ## Manual sandbox local only (2026-11-14)
 
 The published build removes the Manual sandbox; running from the repository keeps it.

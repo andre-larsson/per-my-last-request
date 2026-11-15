@@ -310,7 +310,8 @@ try {
     assert.equal(await page.eval('QuestDemo.snapshot().device.gpu'),false);
     assert.match(await page.eval('document.querySelector("#recommendation").textContent'),/CPU/);
     assert.equal(await page.eval('document.querySelector("#webgpu-help").open'),true,'Missing WebGPU opens the browser setup guide');
-    assert.match(await page.eval('document.querySelector("#webgpu-help").textContent'),/Windows[\s\S]*Mac[\s\S]*Linux[\s\S]*npm run play/);
+    assert.match(await page.eval('document.querySelector("#webgpu-help").textContent'),/Windows[\s\S]*Mac[\s\S]*Linux[\s\S]*--enable-unsafe-webgpu --use-angle=vulkan --enable-features=Vulkan/);
+    assert.doesNotMatch(await page.eval('document.body.textContent'),/npm |localhost/,'The page gives no local-run instructions; the game is played online');
     assert.match(await page.eval('document.querySelector("#run-status").textContent'),/Get WebGPU/,'The blocked status points to the guide');
     await page.viewport(360,844,true);
     assert.equal(await page.eval('document.documentElement.scrollWidth > innerWidth'),false,'The WebGPU guide fits at 360px');
