@@ -293,6 +293,22 @@ test('the play-by-play names the choice, strikes through the rest, and reveals l
   assert.equal((kept.match(/beat [^"]*shown/g) || []).length, 3);
   assert.equal(/\bnow\b/.test(kept), false);
 });
+test('a random pick is labelled as one everywhere, plays back like a model\'s choice, and the verdict credits luck', () => {
+  const boar = play(newGame('circuit'), 'depart', 'quick', 'quick', 'advance', 'advance');
+  const entry = applyAction(boar, 'guard', 'random').log.at(-1);
+  const beats = turnBeats(boar, entry);
+  assert.equal(beats[0].ms, BEAT_MS.choice, 'the reveal holds as long as a model\'s choice');
+  assert.match(turnFeedHtml({ entry, beats, offered: availableActions(boar), index: 0 }, 0.8), /Turn 6 · Picked at random<\/span>/, 'no model time is shown');
+  assert.match(journalHtml([entry]), /class="log-source src-random">Random pick</);
+  // The verdict never says the hero followed orders it ignored.
+  const randomWin = ['depart', 'quick', 'quick', 'advance', 'advance', 'finish'].reduce((s, id) => applyAction(s, id, id === 'quick' ? 'random' : 'auto'), newGame('tutorial'));
+  assert.match(verdictFor(randomWin).hint, /^Luck, not orders: the hero picked at random\. Next: Fair warning/);
+  let randomLoss = newGame('tutorial');
+  while (availableActions(randomLoss).length) randomLoss = applyAction(randomLoss, randomLoss.enemy ? 'retreat' : randomLoss.status === 'ready' ? 'depart' : 'advance', randomLoss.enemy ? 'random' : 'auto');
+  assert.match(verdictFor(randomLoss).hint, /ignored the orders and picked at random/);
+  assert.doesNotMatch(verdictFor(randomLoss).hint, /did exactly what the orders said/);
+  assert.match(verdictFor(tutorialRetreats()).hint, /did exactly what the orders said/);
+});
 
 test('the music follows the trial: desk, trial, stingers, and one layer each for LOW health and the red clock', () => {
   const fresh = newGame('circuit');

@@ -86,6 +86,7 @@
         </ul>
       </section>
     </div>
+    <p class="help-foot">Under <strong>Who plays the hero?</strong>, <strong>Random</strong> makes the hero ignore the orders and pick any offered action, as a baseline for your orders.</p>
     <p class="help-foot manual-only">Manual sandbox lets you click the actions yourself to learn the rules. It does not read your orders.</p>
   </dialog>
 
@@ -204,9 +205,10 @@
 
       <section class="card controller" aria-label="Hero controller">
         <h3>Who plays the hero?</h3>
-        <div class="segmented manual-only" role="group" aria-label="Hero controller">
+        <div class="segmented" role="group" aria-label="Hero controller">
           <button data-mode="llm" aria-pressed="true"><strong>Local LLM</strong><span>Reads your orders</span></button>
-          <button data-mode="manual" aria-pressed="false"><strong>Manual sandbox</strong><span>You click, no LLM</span></button>
+          <button data-mode="random" aria-pressed="false"><strong>Random</strong><span>Ignores the orders</span></button>
+          <button data-mode="manual" aria-pressed="false" class="manual-only"><strong>Manual sandbox</strong><span>You click, no LLM</span></button>
         </div>
         <div id="model-options">
           <div class="model-summary">
@@ -235,6 +237,11 @@
             <label for="model">Model</label>
             <select id="model" aria-describedby="model-details model-advice"></select>
             <p id="model-advice"></p>
+            <div class="temperature-setting">
+              <label for="temperature">Temperature <output id="temperature-value" for="temperature">0.0</output></label>
+              <input id="temperature" type="range" min="0" max="1.5" step="0.1" value="0" aria-describedby="temperature-note">
+              <p id="temperature-note"></p>
+            </div>
             <div class="device-check">
               <div class="device-heading"><strong>This device</strong><button id="check-device" class="ghost small">Check again</button></div>
               <p id="device-status" role="status">Checking browser graphics… No model download.</p>
@@ -246,6 +253,7 @@
             </div>
           </details>
         </div>
+        <p id="random-note" class="notice" hidden>Random: the hero ignores your orders and picks any offered action. No model is loaded or asked. It shows what luck alone does, for your orders to beat.</p>
         <p id="manual-note" class="notice manual-only" hidden>Manual sandbox: you choose the actions under the stage. Your orders are not read in this mode.</p>
       </section>
     </aside>

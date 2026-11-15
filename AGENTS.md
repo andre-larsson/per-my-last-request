@@ -9,11 +9,11 @@
 - `GAME_NOTES.md` holds design decisions, the art style preamble, and open playtest questions. Read it first and update it last.
 - `src/view.js` and `src/map.js` are pure presentation: they read game state and return data or markup. Every rule the Rulebook dialog states has a test in `tests/view.test.mjs`; keep the two in step.
 - Game outcomes and action prerequisites belong in `src/game.js`. Models select an offered action ID and cannot grant resources or execute code.
-- Preserve the explicit distinction between local LLM mode and manual sandbox. Do not silently substitute a scripted policy for inference.
+- Preserve the explicit distinction between local LLM mode and manual sandbox. Do not silently substitute a scripted policy for inference. The Random hero (orders ignored, uniform picks, no model) is a third controller the player chooses; label its picks `random` and never fall back to it.
 - Keep model failures separate from tactical failures. A generation, parsing, or loading error consumes no game turn.
 - Preserve prompt and state revisions when changing asynchronous controls so stale model replies cannot act after a restart or pause.
 - Keep this game's fiction distinct from neighboring projects, particularly Brinelight's bells, magical light, tides, and keeper story, and Menhir's standing-stone island puzzles.
-- The Manual sandbox is local only. `tools/build.mjs` removes `data-manual-sandbox` from `<html>`, so the published site offers model-controlled play alone; mark any new sandbox-only element `.manual-only`.
+- The Manual sandbox is local only. `tools/build.mjs` removes `data-manual-sandbox` from `<html>`, so the published site offers model-controlled play and the Random hero only; mark any new sandbox-only element `.manual-only`.
 - The game is played online. Page text gives no local-run instructions (`npm`, localhost, repository steps); those belong in the README.
 - Deploy: `.github/workflows/pages.yml` runs `npm test`, assembles `_site/` with `node tools/build.mjs`, and deploys it on push to `main`. Pushing to `main` deploys the live site, so push only when asked; then watch the Actions run and check the live URL.
 - When asked to commit, commit directly to `main`. Do not create a branch first.

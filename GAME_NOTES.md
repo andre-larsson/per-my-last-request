@@ -157,6 +157,54 @@ User choices: own cues for the desk, the trial and the win and loss stingers (fi
   Peaks −14.6 dBFS or lower. At first the comedy desk and trial came out 5 to 6 dB louder. The walking bass and the tuba carried most of that, so they were cut most. The banjo, pizzicato and shaker, which measured 15 to 30 dB under the bass, were raised.
 - **Editing**: `npx -y github:andre-larsson/musicbox check assets/music/after-hours.scrim` checks a change; `… link FILE` gives an editor link to listen; `… link --decode 'LINK'` reads back a score the user edited there. The first ("sparse dread") score is kept, unused, in `assets-src/music/after-hours-dread.scrim`.
 
+## Random hero (added 2026-11-15, provisional until playtested)
+
+User request: "add play option to let hero choose random action as alternative to follow prompt". The user chose to offer it on the published site as well as locally.
+
+- **A third controller** under **Who plays the hero?**: Local LLM / Random / Manual sandbox. The published site shows two (the sandbox is `.manual-only`). The buttons sit in one row, one column per visible mode (`grid-auto-flow: column`), so the hidden sandbox takes no space. Locally, "Local LLM" wraps to two lines at 1440 px.
+- **What it does** (`pickAtRandom` in `src/app.js`): at a real choice the options stay up for the usual 1.4 s ("The hero picks one of 3 at random…"), then one is picked uniformly with `Math.random` and played back like a model's choice, with the full 1.1 s reveal. Forced moves stay "No choice". No model is loaded or asked. The orders are not read: editing them mid-trial restarts nothing, the letter dims as in the sandbox, and the phone's "Orders in force" strip hides.
+- **Same run controls** as the model hero: "Run at random", Pause (holds the pick), Continue, Turn by turn, Restart, the paces, Skip. A restart, level or mode change drops a pending pick by the same epoch check as model replies.
+- **Labelled everywhere**: source `random` in the log and the export; "Random pick" in the report; "Picked at random" on the stage and the options. A trial with any random pick gets a verdict hint and a status line that credit luck ("Luck, not orders…"), since "The hero did exactly what the orders said" would be false.
+- **Not a fallback.** Nothing switches to Random by itself, and model errors do not suggest it.
+- **Unseeded**, so a random run cannot be replayed exactly; the log records every pick.
+- **Baseline** (100,000 simulated trials each, uniform picks among the offered actions; scratch script, not in the repo):
+
+  | | First instructions | Fair warning | Prize money | Full circuit |
+  |---|---|---|---|---|
+  | Won | 67% | 2.0% | 3.4% | 0.2% |
+  | Died | 0% | 0.6% | 13% | 16% |
+  | Out of turns | 33% | 97% | 84% | 84% |
+
+  On the first assignment, random play beats the unfortunate first draft ("Always retreat…"), which always loses. Most random losses after that are the clock, not death.
+
+## Temperature (added 2026-11-15, provisional until playtested)
+
+User question: "can we set temperature in game?", after the Random baseline.
+
+- **A slider** under **Change model or check this device**: 0 to 1.5 in steps of 0.1, default 0, stored per browser (`pmlq.temperature`). Above 0 it also shows in the model line ("· temperature 0.7"). It locks while a run moves, like the model select.
+- **Fixed per trial**, like the orders: `runTemperature` is set when a trial starts, and a change mid-trial applies from the next trial (the note under the slider says so). Prepared decisions are keyed by it, so read-ahead never mixes two temperatures in one trial. The export records `temperature`, and each decision returns the value it was made at.
+- **Both backends.** WebLLM gets it as `temperature`. The CPU model samples (`do_sample`) among the offered JSON strings only. The worker clamps it to 0–2.
+- **Every recorded model result in these notes is at 0.** Above 0 a run does not repeat, so one run says little.
+- **Measured** (Qwen 2.5 3B, careful circuit orders, 20 asks per temperature): at the boar's first charge, where the orders say to guard, the model chose quick strike 20 of 20 times at 0, guard 6 of 20 at 0.7, and guard 12 of 20 at 1.5. On the road it advanced 20 of 20 at every temperature. So temperature can also help: there the greedy choice is the wrong one.
+- Tools: `QUEST_TEMPERATURE` for `npm run test:llm`, `PROBE_TEMPERATURE` for `tools/probe.mjs`. The trial records include the temperature.
+- Not checked: the CPU model above 0.
+
+## Parallel model runs (measured 2026-11-15)
+
+Question: can trials run in parallel, to make 1000+ model runs practical? Scratch benchmark, not in the repo: the real worker, Qwen 2.5 3B, 31 circuit decision states with the careful orders, temperature 0, 30 decisions per model copy, RTX 4090 with nothing else running.
+
+| Model copies | In one browser | In separate browsers |
+|---|---|---|
+| 1 | 1.90 decisions/s (522 ms each) | – |
+| 2 | 2.22 (895 ms) | 2.19 (907 ms) |
+| 3 | 2.29 (1296 ms) | 2.28 (1310 ms) |
+| 4 | 2.30 (1735 ms) | the 4th browser got no WebGPU adapter |
+
+- Extra copies add at most about 20%. The GPU reports 100% busy at about 230 W of its 450 W: the copies take turns on the GPU instead of running together, whether they share a browser or not. Each copy uses about 2.1 GB.
+- Where one decision's time goes (WebLLM's usage report, tutorial, warm): 0.52 s reading the ~260-token prompt (about 500 tokens/s) and 0.15 s writing ~7 tokens. Reading the prompt is about 80%.
+- At 1.9–2.3 decisions/s, 1000 full-circuit trials (~26 decisions each) take about 3.2–3.8 hours, and 1000 Fair warning trials (~15) about 2 hours, with playback off. At temperature 0, repeating the same orders only repeats the same trial.
+- Untested ways to go faster: keep the unchanging start of the prompt (system prompt and orders) cached between decisions instead of `resetChat` each time; or a native runtime with batching, whose results would need checking against the browser model's.
+
 ## Browser setup guide (added 2026-11-14)
 
 - **Get WebGPU on Windows, Mac or Linux** sits under the model status in **Who plays the hero?**. It is a collapsed four-line guide: Windows, Mac, Linux, and "still not working?". It opens by itself when the device check finds no WebGPU or only software graphics, and the blocked status line points to it. The README has the full table and the Linux command line.
@@ -192,7 +240,7 @@ Style preamble, used at the start of every request (full requests in `assets-src
 
 ## Determinism
 
-The engine is deterministic: no randomness, fixed course. The music rolls its own dice (random patterns and notes) and never reads or changes game state. Model output is not guaranteed to repeat across devices or model builds.
+The engine is deterministic: no randomness, fixed course. The music rolls its own dice (random patterns and notes) and never reads or changes game state. Model output is not guaranteed to repeat across devices or model builds, and above temperature 0 it does not repeat at all.
 
 ## Open playtest questions
 
@@ -220,3 +268,5 @@ The engine is deterministic: no randomness, fixed course. The music rolls its ow
 - On a laptop, do you miss the map while watching a run?
 - On Windows or Mac: does `npm run play` open a browser, and does the model load? If WebGPU was missing, did the setup guide get you going?
 - Does "Run again" after a loss feel right, given that it restarts immediately?
+- Temperature: do you use it? Does a little (0.3–0.7) make reruns more interesting, or just make the orders feel ignored?
+- Random hero: does it read as a baseline to beat, or as a way to skip writing orders? Random wins First instructions two times in three; does that undercut the first lesson, or make a good joke ("even chance beats this draft")? Is the 1.4 s "picks at random" pause worth keeping, or should random picks be quicker? Should the no-WebGPU guide point to Random?

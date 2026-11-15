@@ -22,11 +22,11 @@ Alternatively use `npm start` and open the URL in your own browser. Use `PORT=80
 
 ## Publish
 
-`node tools/build.mjs` copies what the page loads at runtime (`index.html`, `style.css`, `src/`, `assets/art/`) into `_site/` and checks that every referenced file exists and no path is root-absolute. It also removes the Manual sandbox: the published page offers only model-controlled play. On every push to `main`, `.github/workflows/pages.yml` runs `npm test`, builds `_site/` and deploys it to GitHub Pages at https://a403.space/per-my-last-request/.
+`node tools/build.mjs` copies what the page loads at runtime (`index.html`, `style.css`, `src/`, `assets/art/`) into `_site/` and checks that every referenced file exists and no path is root-absolute. It also removes the Manual sandbox: the published page offers model-controlled play and the Random hero. On every push to `main`, `.github/workflows/pages.yml` runs `npm test`, builds `_site/` and deploys it to GitHub Pages at https://a403.space/per-my-last-request/.
 
 ### Browser and GPU setup
 
-The local model needs WebGPU. The experimental CPU model works without it, and so does the Manual sandbox when you run the game locally. The game checks for WebGPU when it opens; if it finds none, the guide **Get WebGPU on Windows, Mac or Linux** under **Who plays the hero?** opens with the short version of this table.
+The local model needs WebGPU. The experimental CPU model works without it, and so do the Random hero and, when you run the game locally, the Manual sandbox. The game checks for WebGPU when it opens; if it finds none, the guide **Get WebGPU on Windows, Mac or Linux** under **Who plays the hero?** opens with the short version of this table.
 
 | | Chrome / Edge | Firefox | Safari |
 |---|---|---|---|
@@ -71,11 +71,15 @@ Under **Who plays the hero?**, **Change model or check this device** opens the m
 
 A suggestion that differs from your selection appears above the load button. **Use recommendation** changes the selection only when clicked. Checking again and changing the memory estimate never silently switch or unload your model. Downloads start only from a load button that names the model. Missing or software WebGPU suggests the experimental CPU option; locally, Manual sandbox remains available. No benchmark, model download, or game action runs during the device check.
 
+**Temperature** (under **Change model or check this device**, 0 to 1.5, default 0) sets how much the model's choices vary. At 0 the hero makes the same choice in the same situation every run; every recorded result was made that way. Above 0 the same orders can play out differently from run to run, so one run says little. A trial keeps the temperature it started with; a change applies from the next trial. The saved report records it.
+
 An experimental **Qwen 0.5B CPU** option runs through WebAssembly and needs no GPU. It downloads approximately 520 MB including tokenizer files, but was less reliable at following the orders. It does not silently replace the GPU controller.
 
 A browser supporting the WebGPU API may still lack a usable adapter or enough memory. See `VERIFICATION.md` for the hardware and browser results actually obtained.
 
 **Manual sandbox** offers the same game rules with clickable actions. It does not interpret prompts and is labeled separately from model-controlled play. It is for local play and tools only (`npm start`, `npm run play`, the browser tests and screenshots); `tools/build.mjs` removes it from the published site.
+
+**Random** makes the hero ignore the orders and pick one of the offered actions uniformly at random. It loads and asks no model, so it works in any browser, on the published site too. It uses the same Run, Pause, pace and playback as the model hero. The report labels each pick "Random pick", and the verdict credits luck, not the orders. It is a baseline for orders to beat (in 100,000 simulated trials each, random picks won 67% of First instructions, 2% of Fair warning, 3% of Prize money and 0.2% of the full circuit). Nothing switches to it by itself: it never stands in for a model that fails to load or answer.
 
 ## What the demo implements
 
@@ -146,6 +150,7 @@ npm run test:llm -- --levels    # the model also plays both middle assignments, 
                                 # (--levels=prize for one; QUEST_ORDERS='A || B' to compare other orders)
 node tools/balance.mjs          # balance proxies for the full circuit (no browser, no model); --level warning|prize for the others
 node tools/probe.mjs            # the real model answers 13 fixed circuit situations with the example orders
+QUEST_TEMPERATURE=0.7 npm run test:llm -- --levels   # trials at another sampling temperature (default 0); PROBE_TEMPERATURE does the same for the probe
 npm run test:llm -- --cpu
 QUEST_MODEL=Qwen3-8B-q4f32_1-MLC npm run test:llm -- --full
 QUEST_LOAD_MINUTES=60 npm run test:llm -- --full   # allow a slow first download

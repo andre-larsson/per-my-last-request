@@ -2,6 +2,7 @@
 // A fast way to check whether example orders and prompt wording are readable for a small model.
 //
 //   node tools/probe.mjs            (QUEST_MODEL=<id> picks another model; default Qwen 2.5 3B)
+//   PROBE_TEMPERATURE=0.7 node tools/probe.mjs    (samples at that temperature; default 0, the tested setting)
 //
 // It reuses the persistent test profile (artifacts/llm-test-profile, port 4174), so a model downloaded by
 // `QUEST_PROFILE=artifacts/llm-test-profile npm run test:llm` is not downloaded again.
@@ -12,6 +13,7 @@ import { launch } from './chrome.mjs';
 import { newGame, applyAction, availableActions, observation, PRESETS } from '../src/game.js';
 
 const MODEL = process.env.QUEST_MODEL || 'Qwen2.5-3B-Instruct-q4f32_1-MLC';
+const TEMPERATURE = Number(process.env.PROBE_TEMPERATURE || 0);
 const play = (s, ...ids) => ids.reduce((state, id) => applyAction(state, id), s);
 const meet = index => applyAction({ ...newGame('circuit'), status: 'active', position: index - 1 }, 'advance');
 
@@ -56,13 +58,13 @@ try {
   })()`);
   const started = Date.now();
   await page.eval(`__call('load', { model: ${JSON.stringify(MODEL)} })`);
-  console.log(`Loaded ${MODEL} in ${((Date.now() - started) / 1000).toFixed(0)} s\n`);
+  console.log(`Loaded ${MODEL} in ${((Date.now() - started) / 1000).toFixed(0)} s, temperature ${TEMPERATURE}\n`);
   for (const [name, orders] of Object.entries(ORDERS)) {
     let right = 0;
     console.log(`ORDERS (${name}): ${orders}`);
     for (const [label, state, wanted] of SITUATIONS) {
       const actions = availableActions(state).map(({ id, label, detail }) => ({ id, label, detail }));
-      const result = await page.eval(`__call('decide', ${JSON.stringify({ orders, observation: observation(state), actions })})`);
+      const result = await page.eval(`__call('decide', ${JSON.stringify({ orders, observation: observation(state), actions, temperature: TEMPERATURE })})`);
       const chosen = JSON.parse(result.raw).action;
       if (chosen === wanted) right++;
       console.log(`  ${chosen === wanted ? '✓' : '✗'} ${label.padEnd(30)} chose ${chosen.padEnd(8)} wanted ${wanted}`);

@@ -114,7 +114,7 @@ export function deltas(entry) {
 }
 const chips = entry => deltas(entry).map(d => `<span class="chip ${d.good ? 'gain' : 'loss'}">${escapeHtml(d.text)}</span>`).join('');
 
-export const SOURCE_LABEL = { llm: 'LLM chose', auto: 'No choice', manual: 'You chose' };
+export const SOURCE_LABEL = { llm: 'LLM chose', random: 'Random pick', auto: 'No choice', manual: 'You chose' };
 const sourceLabel = source => SOURCE_LABEL[source] || source;
 
 // ---------------------------------------------------------------------------
@@ -209,7 +209,7 @@ export function displayAt(before, after, beats, index) {
   return { ...base, turn: after.turn, hp: at.hp, stamina: at.stamina, potions: at.potions, coins: at.coins, stamps: at.stamps, champion: at.champion, enemy: base.enemy && { ...base.enemy, hp: at.foeHp ?? base.enemy.hp } };
 }
 
-const CHOSE = { llm: 'The hero chose', manual: 'You chose', auto: 'No choice' };
+const CHOSE = { llm: 'The hero chose', random: 'Picked at random', manual: 'You chose', auto: 'No choice' };
 /**
  * The play-by-play under the fighters. Every line is laid out from the start, so the box keeps its height while lines
  * appear. `index` is the beat on screen; `Infinity` shows the whole turn at rest, as kept for review at a stop.
@@ -246,13 +246,15 @@ export function actionTally(log) {
 export function verdictFor(game) {
   if (game.status !== 'won' && game.status !== 'lost') return null;
   const tally = actionTally(game.log);
+  // A trial with random picks in it says so: the orders did not decide it.
+  const random = game.log.some(entry => entry.source === 'random');
   if (game.status === 'won') {
     const medals = commendations(game);
     const missed = medals.filter(m => !m.earned);
     const hint = nextLevel(game.level) ? NEXT_HINTS[game.level]
       : !missed.length ? 'Every commendation in one trial. The guild suspects paperwork fraud.'
       : `Different orders earn different commendations. Still unclaimed: ${missed.map(m => `${m.label} (${m.rule.replace(/\.$/, '').toLowerCase()})`).join('; ')}.`;
-    return { tone: 'won', stamp: 'Accepted', title: 'Assignment accepted.', text: `Home in ${plural(game.turn, 'turn')} with ${game.hp} HP and ${plural(game.potions, 'potion')} to spare. The hero would like to discuss the fee.`, hint, tally, commendations: medals };
+    return { tone: 'won', stamp: 'Accepted', title: 'Assignment accepted.', text: `Home in ${plural(game.turn, 'turn')} with ${game.hp} HP and ${plural(game.potions, 'potion')} to spare. The hero would like to discuss the fee.`, hint: random ? `Luck, not orders: the hero picked at random. ${hint}` : hint, tally, commendations: medals };
   }
   const missing = [];
   const target = stampTarget(game);
@@ -265,7 +267,7 @@ export function verdictFor(game) {
     stamp: dead ? 'Incident' : 'Overdue',
     title: dead ? 'A preventable workplace incident.' : 'The guild has closed for the day.',
     text: dead ? `The hero ran out of health on turn ${game.turn}, at ${currentTile(game).name}. ${missing.join(', ')}.` : `All ${game.turnLimit} turns used: ${missing.join(', ')}.`,
-    hint: 'The hero did exactly what the orders said, and would like that noted. Change one instruction and run again.',
+    hint: random ? 'The hero ignored the orders and picked at random. Let the hero read your orders and see whether they do better.' : 'The hero did exactly what the orders said, and would like that noted. Change one instruction and run again.',
     tally,
     commendations: [],
   };

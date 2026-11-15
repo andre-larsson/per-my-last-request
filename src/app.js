@@ -18,6 +18,8 @@ let running = false; // A run is in progress, paused or not.
 let paused = false; // Pause froze the run: playback, the hero's thinking, and any reply that arrives all wait for Continue.
 let loading = false;
 let loadProgress = 0;
+// Who plays the hero. 'llm': the model reads the orders. 'random': the hero ignores them and picks any offered action,
+// with no model; an explicit choice, never a stand-in for a model. 'manual': the local sandbox, where the player clicks.
 let mode = 'llm';
 let runOrders = '';
 let promptVersion = 1;
@@ -56,6 +58,12 @@ let soundOn = stored('pmlq.sound', 'on') !== 'off';
 if (!soundOn) setSoundEnabled(false); // Otherwise audio starts on the first click or key press, as browsers require.
 let musicOn = stored('pmlq.music', 'on') !== 'off';
 if (!musicOn) setMusicEnabled(false);
+const TEMPERATURE_MAX = 1.5;
+const readTemperature = value => { const t = Math.round(Number(value) * 10) / 10; return Number.isFinite(t) ? Math.min(TEMPERATURE_MAX, Math.max(0, t)) : 0; };
+// The model's sampling temperature. At 0, how the game was tested, the same situation always gets the same choice.
+let temperature = readTemperature(stored('pmlq.temperature', '0'));
+// The temperature this trial runs at. Like the orders, it is fixed when a trial starts; a change applies from the next one.
+let runTemperature = temperature;
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
 let epochSignal = deferred();
 /** Invalidates every pending and prepared model reply, and wakes anything waiting on one. */
@@ -73,6 +81,12 @@ const stopEachTurn = () => PACES[pace].stops;
 /** What the stage shows: the turn being played back, or the engine's state once nothing is playing. */
 const shown = () => playback?.display ?? game;
 const deciding = () => phase === 'consider';
+/** The hero decides (by model or at random) and runs play turn after turn; in the Manual sandbox the player clicks. */
+const heroDecides = () => mode !== 'manual';
+/** A run can start: the Random hero needs nothing, the model hero a loaded model. */
+const canRun = () => mode === 'random' || (mode === 'llm' && model.ready);
+/** Orders edited mid-trial restart it, but only for a hero that reads them. */
+const ordersEdited = () => mode === 'llm' && game.turn > 0 && typedOrders() !== runOrders;
 /** A run is moving. Orders, assignments and model settings unlock when it is paused or stopped. */
 const locked = () => running && !paused;
 let pausedTotal = 0; // Milliseconds spent paused, so a measured wait for the model can leave pauses out.
@@ -140,7 +154,7 @@ function renderModelAdvice() {
   $('use-recommendation').disabled = busy || !recommendation?.model || suggested;
   $('use-recommendation').textContent = suggested ? 'Suggested model selected ✓' : 'Use recommendation';
   $('model-name').textContent = `${selected.name} · ${selected.backend}`;
-  $('model-details').textContent = `${modelSize(selected.downloadGB)} download${selected.memoryGB ? ` · ~${selected.memoryGB} GB GPU memory` : ' · no GPU needed'}${suggested ? ' · suggested for this device' : ''}`;
+  $('model-details').textContent = `${modelSize(selected.downloadGB)} download${selected.memoryGB ? ` · ~${selected.memoryGB} GB GPU memory` : ' · no GPU needed'}${suggested ? ' · suggested for this device' : ''}${temperature > 0 ? ` · temperature ${temperature.toFixed(1)}` : ''}`;
   $('model-advice').textContent = selectedModelAdvice(selected, device, gpuMemory());
   $('model-chip').textContent = loading ? 'Loading…' : model.ready ? 'Ready ✓' : 'Not loaded';
   $('model-chip').className = `chip ${model.ready ? 'gain' : 'quiet'}`;
@@ -176,11 +190,12 @@ function reset() {
   stopRun();
   game = newGame(level);
   runOrders = typedOrders();
+  runTemperature = temperature;
   promptVersion++;
   lastDecision = null;
   decisionSeconds = new Map();
   mapShownAt = null;
-  status = mode === 'manual' ? 'Fresh trial. Choose the first action under the stage.' : 'Fresh trial. Same course. Revised instructions.';
+  status = mode === 'manual' ? 'Fresh trial. Choose the first action under the stage.' : mode === 'random' ? 'Fresh trial. The hero will pick at random again.' : 'Fresh trial. Same course. Revised instructions.';
   hasError = false;
   render();
 }
@@ -273,11 +288,11 @@ function renderBrief(s) {
 function renderPrompt(state, actions) {
   const orders = runOrders || typedOrders() || '(no orders written)';
   const [system, user] = decisionMessages(orders, observation(state), actions);
-  $('seen').hidden = actions.length === 1 && mode === 'llm';
-  $('seen').querySelector('summary').textContent = mode === 'manual' ? (playback ? 'What an LLM hero would have been told' : 'What an LLM hero would be told this turn') : playback ? 'What the hero was told this turn' : 'What the hero is told this turn';
+  $('seen').hidden = actions.length === 1 && heroDecides();
+  $('seen').querySelector('summary').textContent = mode !== 'llm' ? (playback ? 'What an LLM hero would have been told' : 'What an LLM hero would be told this turn') : playback ? 'What the hero was told this turn' : 'What the hero is told this turn';
   $('seen-text').textContent = `${system.content}\n\n${user.content}`;
 }
-const CHOSE = { llm: 'The hero chose', manual: 'You chose', auto: 'No choice' };
+const CHOSE = { llm: 'The hero chose', random: 'Picked at random', manual: 'You chose', auto: 'No choice' };
 function renderMoves(s) {
   const verdict = verdictFor(s);
   $('stage').className = `stage${verdict ? ` ended ${verdict.tone}` : ''}${paused ? ' paused' : ''}`;
@@ -316,9 +331,10 @@ function renderMoves(s) {
   const forced = actions.length === 1;
   $('options-wrap').className = `options-wrap${deciding() ? ' thinking' : ''}${paused ? ' paused' : ''}`;
   // Numbered as the turn being decided, one past the turns used.
+  const random = mode === 'random';
   $('options-title').textContent = `Turn ${s.turn + 1} · ${mode === 'manual' ? 'Your move. Choose an action'
-    : deciding() ? `The hero weighs ${actions.length} options…`
-    : forced ? 'Only one way forward, so no decision is needed' : `The hero will choose one of ${actions.length}`}`;
+    : deciding() ? (random ? `The hero picks one of ${actions.length} at random…` : `The hero weighs ${actions.length} options…`)
+    : forced ? 'Only one way forward, so no decision is needed' : random ? `The hero will pick one of ${actions.length} at random` : `The hero will choose one of ${actions.length}`}`;
   $('options').dataset.count = actions.length;
   paint('options', `open:${epoch}:${s.revision}:${mode}:${level}`, () => {
     $('options').innerHTML = actions.map(action => {
@@ -336,26 +352,29 @@ function runLine() {
   const upcoming = game.turn + 1;
   // Kept short enough for one line beside the pace and sound settings; the button below says Continue.
   if (paused) return `Paused${deciding() ? ` while the hero weighs turn ${upcoming}` : shownTurn ? ` ${playback ? 'during' : 'after'} turn ${shownTurn}` : ''}.`;
-  if (deciding()) return `Turn ${upcoming}: ${awaitingModel ? 'the model needs a moment longer.' : 'the hero is reading your orders.'} Thinking costs no turns.`;
+  if (deciding()) return mode === 'random' ? `Turn ${upcoming}: the hero is picking at random. Your orders are not read.` : `Turn ${upcoming}: ${awaitingModel ? 'the model needs a moment longer.' : 'the hero is reading your orders.'} Thinking costs no turns.`;
   if (playback && running) return stopEachTurn() ? `Playing turn ${shownTurn}. The trial stops when it ends.` : 'Running. Pause stops everything at once.';
   if (reviewing) return `Stopped after turn ${shownTurn}.${nextMoveNote()}`;
   return null;
 }
 /** At a stop: whether the model has already prepared the hero's next decision. */
 function nextMoveNote() {
-  if (game.turn > 0 && typedOrders() !== runOrders) return ' New orders restart the trial.';
+  if (ordersEdited()) return ' New orders restart the trial.';
   const actions = availableActions(game);
   if (actions.length === 1) return ' The next move is automatic.';
+  if (mode !== 'llm') return '';
   const ahead = prepared.get(decisionKey(game, actions))?.promise;
   return !ahead ? '' : ahead.settled ? ' The next move is ready.' : ' Preparing the next move…';
 }
 function renderControls(s) {
   const terminal = !availableActions(s).length;
   const over = !availableActions(game).length;
-  const ordersChanged = game.turn > 0 && typedOrders() !== runOrders;
+  const ordersChanged = ordersEdited();
   const llm = mode === 'llm';
+  const manual = mode === 'manual';
   const selected = findModel($('model').value);
   const won = s.status === 'won';
+  const luck = s.log.some(entry => entry.source === 'random'); // The orders did not decide this trial.
   $('load-cta').hidden = !llm || model.ready;
   $('load-cta').disabled = loading || checkingDevice;
   $('load-cta').innerHTML = loading ? `Loading model… ${Math.round(loadProgress * 100)}% ` : `<span>Load <span class="wide-only">${escapeHtml(selected.name)}</span><span class="narrow-only">model</span></span> <small>${modelSize(selected.downloadGB)}<span class="wide-only"> download</span></small><span aria-hidden="true">↓</span>`;
@@ -363,7 +382,7 @@ function renderControls(s) {
   $('manual-cta').hidden = !MANUAL_SANDBOX || !llm || model.ready || loading;
   // A GPU model on a device without usable WebGPU would only fail to load. Say so before the click.
   const blocked = llm && !model.ready && !loading && !hasError && device && (!device.gpu || device.software) && selected.backend !== 'CPU';
-  $('run').hidden = !llm || !model.ready;
+  $('run').hidden = !canRun();
   // Outside a run, a turn still playing finishes (or is skipped) before the next one can start.
   $('run').disabled = !running && (deciding() || Boolean(playback));
   const arrow = '<span aria-hidden="true">→</span>';
@@ -372,20 +391,20 @@ function renderControls(s) {
     : ordersChanged && !over ? `Restart with new orders ${again}`
     : running ? `Continue ${arrow}`
     : over ? `Run again ${again}`
-    : game.turn > 0 ? (stopEachTurn() ? `Next turn ${arrow}` : `Continue ${arrow}`) : `Run these orders ${arrow}`;
+    : game.turn > 0 ? (stopEachTurn() ? `Next turn ${arrow}` : `Continue ${arrow}`) : mode === 'random' ? `Run at random ${arrow}` : `Run these orders ${arrow}`;
   $('next-level').hidden = !(won && nextLevel(s.level));
   $('run').className = $('next-level').hidden ? 'primary' : 'secondary';
   $('reset').hidden = game.turn === 0; // Nothing to restart yet.
-  $('reset').textContent = terminal && !llm ? 'Try again ↻' : 'Restart';
-  $('reset').className = terminal && !llm && $('next-level').hidden ? 'primary' : 'ghost';
-  $('run-status').textContent = (!hasError && llm && runLine())
+  $('reset').textContent = terminal && manual ? 'Try again ↻' : 'Restart';
+  $('reset').className = terminal && manual && $('next-level').hidden ? 'primary' : 'ghost';
+  $('run-status').textContent = (!hasError && heroDecides() && runLine())
     || (blocked ? 'This browser cannot run the selected GPU model. See “Get WebGPU” under “Who plays the hero?”' + (MANUAL_SANDBOX ? ', use the CPU suggestion there, or play manually.' : ' or use the CPU suggestion there.')
-    : !hasError && s.status === 'won' ? 'Success. Your orders got the hero home.'
-    : !hasError && s.status === 'lost' ? 'Trial over. Read the report, change the orders, and run again.'
+    : !hasError && s.status === 'won' ? (luck ? 'Success, by luck. The hero ignored your orders.' : 'Success. Your orders got the hero home.')
+    : !hasError && s.status === 'lost' ? (luck ? 'Trial over. The hero picked at random. See whether your orders do better.' : 'Trial over. Read the report, change the orders, and run again.')
     : status);
   $('run-status').className = `run-status${hasError ? ' error' : ''}${deciding() && !paused ? ' busy' : ''}${paused ? ' paused' : ''}`;
   // With nothing but Restart to offer, the bar shrinks to one line so it covers less of a small screen.
-  $('controls').className = `controls${!llm && !terminal ? ' compact' : ''}`;
+  $('controls').className = `controls${manual && !terminal ? ' compact' : ''}`;
   const next = PACES[PACE_ORDER[(PACE_ORDER.indexOf(pace) + 1) % PACE_ORDER.length]];
   $('pace').innerHTML = `<span class="wide-only">Pace: </span>${PACES[pace].label}`;
   $('pace').title = `${PACES[pace].label}: ${PACES[pace].note} Click for ${next.label}.`;
@@ -415,7 +434,7 @@ function countOrderTokens() {
   }, 250);
 }
 function renderOrders() {
-  const changed = mode === 'llm' && game.turn > 0 && typedOrders() !== runOrders;
+  const changed = ordersEdited();
   $('orders').disabled = locked();
   $('orders-notice').hidden = !changed;
   // Size only. Tokens are exact once the loaded model has counted this text, and an estimate before that.
@@ -434,9 +453,17 @@ function renderController() {
     button.disabled = loading;
   });
   $('model').disabled = loading || locked();
+  $('temperature').disabled = loading || locked();
+  if (Number($('temperature').value) !== temperature) $('temperature').value = temperature;
+  $('temperature-value').textContent = temperature.toFixed(1);
+  const later = game.turn > 0 && availableActions(game).length > 0 && temperature !== runTemperature;
+  $('temperature-note').textContent = later ? `This trial keeps temperature ${runTemperature.toFixed(1)}. The new value applies from the next trial.`
+    : temperature === 0 ? 'At 0 the hero makes the same choice in the same situation every run. The game was tested at 0.'
+    : 'Above 0 the hero’s choices can vary from run to run, and may follow the orders less closely. The game was tested at 0.';
   $('load-model').textContent = loading ? 'Loading model…' : model.ready ? 'Model ready ✓' : 'Load local model ↓';
-  $('model-options').hidden = mode === 'manual';
+  $('model-options').hidden = mode !== 'llm';
   $('manual-note').hidden = mode !== 'manual';
+  $('random-note').hidden = mode !== 'random';
   renderModelAdvice();
 }
 function renderMapRegion(s) {
@@ -521,7 +548,7 @@ function startPlayback(before, after) {
 /** A turn has finished playing. If the run is stopping (or paused), the stage keeps the turn in view for review. */
 function endPlayback(pb) {
   if (playback === pb) playback = null;
-  if (mode === 'llm' && (paused || stopEachTurn()) && availableActions(pb.after).length) reviewing = pb;
+  if (heroDecides() && (paused || stopEachTurn()) && availableActions(pb.after).length) reviewing = pb;
   render();
 }
 function stopPlayback() {
@@ -571,7 +598,7 @@ function readAhead(from) {
     }
   })();
 }
-const decisionPayload = (state, actions) => ({ orders: runOrders, observation: observation(state), actions });
+const decisionPayload = (state, actions) => ({ orders: runOrders, observation: observation(state), actions, temperature: runTemperature });
 /** A prepared decision belongs to one trial (epoch), one state (revision) and the exact prompt it answered. */
 const decisionKey = (state, actions) => `${epoch}:${state.revision}:${JSON.stringify(decisionPayload(state, actions))}`;
 /**
@@ -605,6 +632,7 @@ function decisionFor(state, actions) {
 }
 function prepareOrders() {
   if (!runOrders || game.turn === 0) runOrders = typedOrders();
+  if (game.turn === 0) runTemperature = temperature;
   if (runOrders) return true;
   status = 'Write some standing orders first.';
   hasError = true;
@@ -617,12 +645,13 @@ function prepareOrders() {
  * paused, the options stay up and a reply that arrives is held until Continue.
  */
 async function takeTurn() {
-  if (!prepareOrders()) return false;
+  if (mode === 'llm' && !prepareOrders()) return false;
   const actions = availableActions(game);
   if (!actions.length) return false;
   reviewing = null;
   // Forced movement needs no inference. The model is called whenever a real choice exists.
   if (actions.length === 1) { commit(actions[0].id, 'auto'); return true; }
+  if (mode === 'random') return pickAtRandom(actions);
   const requestEpoch = epoch;
   const stale = () => requestEpoch !== epoch;
   const revision = game.revision;
@@ -666,9 +695,26 @@ async function takeTurn() {
   commit(decision.action, 'llm');
   return true;
 }
+/**
+ * One turn with the Random hero. The options stay up as long as they would for a model, then one is picked uniformly
+ * at random. No model is asked and the orders are not read. Pause holds the pick; a restart or mode change drops it.
+ */
+async function pickAtRandom(actions) {
+  const requestEpoch = epoch;
+  const stale = () => requestEpoch !== epoch;
+  const revision = game.revision;
+  phase = 'consider';
+  hasError = false;
+  render();
+  try { await gameTime(BEAT_MS.consider * paceFactor(), stale); }
+  finally { if (!stale()) phase = 'idle'; render(); }
+  if (stale() || revision !== game.revision) return false;
+  commit(actions[Math.floor(Math.random() * actions.length)].id, 'random');
+  return true;
+}
 /** A finished trial, or orders edited mid-trial, both mean the next decision starts a fresh trial. */
 function restartIfStale() {
-  if (!availableActions(game).length || (game.turn > 0 && typedOrders() !== runOrders)) reset();
+  if (!availableActions(game).length || ordersEdited()) reset();
 }
 /**
  * The primary trial button: start a run, pause it, or continue it. Pause freezes everything at once and keeps the
@@ -679,10 +725,10 @@ async function run() {
   if (running && !paused) { setPaused(true); render(); return; }
   if (running) {
     // Orders edited during a pause apply from a fresh trial, as the notice under the letter says.
-    if (game.turn > 0 && typedOrders() !== runOrders) reset();
+    if (ordersEdited()) reset();
     else { setPaused(false); render(); return; }
   }
-  if (deciding() || playback || !model.ready || mode !== 'llm') return;
+  if (deciding() || playback || !canRun()) return;
   restartIfStale();
   running = true;
   hasError = false;
@@ -729,7 +775,9 @@ function setMode(next) {
   stopRun();
   mode = next;
   hasError = false;
-  status = mode === 'manual' ? 'Manual sandbox: choose actions under the stage. Your orders are not read.' : model.ready ? 'Local LLM selected. Run your orders.' : 'Local LLM selected. Load the model, then run your orders.';
+  status = mode === 'manual' ? 'Manual sandbox: choose actions under the stage. Your orders are not read.'
+    : mode === 'random' ? 'Random hero selected. No model needed: press Run at random.'
+    : model.ready ? 'Local LLM selected. Run your orders.' : 'Local LLM selected. Load the model, then run your orders.';
   render();
 }
 
@@ -738,6 +786,11 @@ $('load-cta').addEventListener('click', loadModel);
 $('manual-cta').addEventListener('click', () => setMode('manual'));
 $('check-device').addEventListener('click', checkHardware);
 $('gpu-memory').addEventListener('change', render);
+$('temperature').addEventListener('input', () => {
+  temperature = readTemperature($('temperature').value);
+  store('pmlq.temperature', String(temperature));
+  render();
+});
 $('use-recommendation').addEventListener('click', () => {
   if (!recommendation?.model || $('use-recommendation').disabled) return;
   $('model').value = recommendation.model.id;
@@ -786,7 +839,7 @@ $('help-toggle').addEventListener('click', () => $('help').showModal());
 $('help-close').addEventListener('click', () => $('help').close());
 $('help').addEventListener('click', event => { if (event.target === $('help')) $('help').close(); });
 $('export').addEventListener('click', () => {
-  const report = { title: 'Per My Last ReQuest', controller: mode, model: model.model || null, promptVersion, orders: runOrders || $('orders').value, result: game.status, state: game, lastDecision };
+  const report = { title: 'Per My Last ReQuest', controller: mode, model: model.model || null, temperature: runTemperature, promptVersion, orders: runOrders || $('orders').value, result: game.status, state: game, lastDecision };
   const url = URL.createObjectURL(new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' }));
   const a = document.createElement('a');
   a.href = url;
@@ -801,7 +854,7 @@ window.addEventListener('beforeunload', () => model.dispose());
 // `setReadAhead(n)` limits how many decisions the model prepares ahead (0: none, as a test of plain waiting).
 window.QuestDemo = {
   countTokens: text => model.countTokens(text),
-  snapshot: () => structuredClone({ game, mode, level, running, paused, stopEachTurn: stopEachTurn(), reviewing: reviewing ? reviewing.entry.turn : null, prepared: [...prepared.values()].filter(entry => entry.promise.settled).length, thinking: deciding(), phase, playing: Boolean(playback), beat: playback ? playback.index : null, beatKinds: playback ? playback.beats.map(beat => beat.kind) : null, awaitingModel, modelBusy: modelBusy > 0, pace, instant, sound: soundOn, music: musicState(), modelReady: model.ready, status, lastDecision, orders: runOrders, device, checkingDevice, recommendation: recommendation?.model?.id || null }),
+  snapshot: () => structuredClone({ game, mode, level, running, paused, stopEachTurn: stopEachTurn(), reviewing: reviewing ? reviewing.entry.turn : null, prepared: [...prepared.values()].filter(entry => entry.promise.settled).length, thinking: deciding(), phase, playing: Boolean(playback), beat: playback ? playback.index : null, beatKinds: playback ? playback.beats.map(beat => beat.kind) : null, awaitingModel, modelBusy: modelBusy > 0, pace, instant, sound: soundOn, music: musicState(), modelReady: model.ready, temperature, runTemperature, status, lastDecision, orders: runOrders, device, checkingDevice, recommendation: recommendation?.model?.id || null }),
   loadModel,
   setPace: name => { if (name === 'instant') instant = true; else if (PACES[name]) { pace = name; instant = false; } render(); },
   hold: beat => { holdAt = Number.isInteger(beat) ? beat : null; },

@@ -2,6 +2,25 @@
 
 Original prototype checks on 2026-11-13, with model-selection checks added on 2026-11-14. This file distinguishes game-rule checks, browser UI checks, and genuine model inference.
 
+## Temperature and parallel model runs (2026-11-15)
+
+- `npm test` passed (57 tests). `npm run test:browser` passed. New, with the stub worker (no inference): the default temperature is 0 and every decision is asked at 0; at 0.7 the worker receives 0.7 and the model line shows it; changed to 0.3 mid-trial, the trial keeps 0.7 and the note says so; after Restart the worker receives 0.3.
+- Real model, temperature (Qwen 2.5 3B, RTX 4090, the real worker in headless Chrome): the boar's first charge with the careful circuit orders, asked 20 times at each temperature: quick strike 20 of 20 at 0; guard 6 and quick strike 14 at 0.7; guard 12 and quick strike 8 at 1.5. A road decision: advance 20 of 20 at all three. The CPU model above 0 was not run.
+- `QUEST_PROFILE=artifacts/llm-test-profile npm run test:llm -- --full` passed at the default temperature: the tutorial was won on turn 6 with only `auto` and `llm` moves, `runTemperature` 0, no browser errors.
+- Parallel throughput: see the table in `GAME_NOTES.md`. One copy 1.90 decisions/s; two, three and four copies 2.19–2.30, in one browser or in separate browsers. The 4th separate browser got no WebGPU adapter (not investigated).
+- The GPU was shared at first: ComfyUI (18.4 GB, 99% busy) and Ollama (3.7 GB). A first single-copy timing run overlapped a ComfyUI job and is not used. ComfyUI wrote its 100th image and its process exited during the first two-copy run, at 19:28; the table's runs were all made after that, on an otherwise idle GPU.
+
+## Random hero (2026-11-15)
+
+A third controller that ignores the orders and picks uniformly among the offered actions. No model involved, so nothing here is evidence of LLM play.
+
+- `npm test` passed (57 tests). New: a random pick is labelled "Random pick" in the report and "Picked at random" in the play-by-play, with no model time; it holds the full choice beat; the verdict hint credits luck after a random win or loss and keeps "did exactly what the orders said" for other trials.
+- `npm run test:browser` passed. New, locally, with no model loaded: Random offers Run at once and hides the model panel; at Turn by turn pace the first Run makes the forced move and stops, the next one shows "The hero picks one of 3 at random"; Pause holds the pick past its usual 1.4 s with no turn spent, Continue makes it; edited orders show no restart notice; a whole tutorial trial then runs unattended to its end with only `random` and `auto` sources and a verdict that names the random picks. On the built site: the controller shows exactly Local LLM and Random, Random runs with no model, and no visible text mentions manual play. Screenshot: `artifacts/published-random.png`.
+- `node tools/shots.mjs`: new `random-setup` state at three sizes; no rendered text under 12 px, no overflow.
+- Baseline: 100,000 simulated random trials per assignment (engine only): won 67% / 2.0% / 3.4% / 0.2% (First instructions / Fair warning / Prize money / full circuit). Figures in `GAME_NOTES.md`.
+
+Not checked: the live site (not pushed); a person playing it.
+
 ## WebGPU guide without local-run steps (2026-11-15)
 
 The player's Chrome 156 (Linux X11, RTX 4090, no flags) showed "WebGPU: Hardware accelerated" in `chrome://gpu`, but the game found no adapter and offered only the CPU model. The guide now gives a Chrome start-up command for Linux instead of `npm run play`. The insecure-page message no longer says "Open the local game address".

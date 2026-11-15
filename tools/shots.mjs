@@ -1,6 +1,6 @@
 // Review tool: screenshots of the main game states at several window sizes, plus a text-size audit.
 // Usage: node tools/shots.mjs [output-dir]    (default: artifacts/shots)
-// Drives the Manual sandbox only. No model is loaded and nothing here is evidence of LLM play.
+// Drives the Manual sandbox (and shows the Random hero's setup). No model is loaded and nothing here is evidence of LLM play.
 // Turns are not played back (instant pace), except in `circuit-playback`, which is held on one beat.
 import { mkdir } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
@@ -44,6 +44,8 @@ const restart = async () => { if (await page.eval('QuestDemo.snapshot().game.tur
 // Each state starts from a fresh trial in Manual sandbox, then plays fixed actions.
 const STATES = {
   'setup': async () => { await page.click('button[data-mode="llm"]'); await level('tutorial'); },
+  // The Random hero needs no model: Run is offered at once, and the model panel gives way to a note.
+  'random-setup': async () => { await page.click('button[data-mode="random"]'); },
   'tutorial-fight': async () => { await page.click('button[data-mode="manual"]'); await level('tutorial'); await restart(); await act(['depart', 'quick']); },
   'tutorial-win': async () => { await restart(); await act(['depart', 'quick', 'quick', 'advance', 'advance', 'finish']); },
   'tutorial-loss': async () => { await restart(); await act(['depart', 'retreat', 'advance', 'advance', 'advance', 'retreat', 'advance', 'advance', 'advance', 'retreat', 'advance', 'advance']); },

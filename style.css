@@ -329,12 +329,13 @@ textarea:disabled { opacity: .75; }
 .presets > div { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .presets button { flex: 1 1 auto; padding: 8px 12px; border: 1px solid var(--line-strong); background: var(--raised); font-size: 14px; font-weight: 600; box-shadow: 0 2px 0 var(--edge); }
 .presets button:hover:not(:disabled) { background: var(--ochre-soft); border-color: var(--ochre); color: var(--ochre); }
-body[data-mode='manual'] .letter textarea { opacity: .6; }
+body[data-mode='manual'] .letter textarea, body[data-mode='random'] .letter textarea { opacity: .6; }
 
 /* Hero controller */
 .controller { display: grid; gap: 12px; }
 .controller h3 { font-size: 16px; font-weight: 700; }
-.segmented { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+/* One column per offered mode; the Manual sandbox is hidden on the published site, so it takes no column there. */
+.segmented { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 6px; }
 .segmented button { display: grid; gap: 1px; padding: 8px 10px; border: 1.5px solid var(--line-strong); background: var(--raised); text-align: left; line-height: 1.25; }
 .segmented strong { font-size: 15px; }
 .segmented span { font-size: 13px; color: var(--muted); }
@@ -367,6 +368,10 @@ body[data-mode='manual'] .letter textarea { opacity: .6; }
 .model-settings > :not(summary) { margin-top: 8px; }
 .controller label { display: block; margin-bottom: 4px; font-size: 13px; font-weight: 700; }
 .controller select { width: 100%; max-width: 100%; min-height: 44px; padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: 3px; background: var(--inset); font-size: 15px; }
+.temperature-setting label { display: flex; justify-content: space-between; }
+.temperature-setting output { font: 600 13px var(--mono); color: var(--ink); }
+.temperature-setting input { display: block; width: 100%; min-height: 44px; margin: 0; accent-color: var(--ochre); }
+#temperature-note { font-size: 13px; line-height: 1.5; color: var(--muted); }
 .device-check { padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--inset); }
 .device-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .device-heading strong { font-size: 14px; }
@@ -448,7 +453,7 @@ footer { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8p
   .control-row .primary { max-width: none; min-width: 0; padding-inline: 14px; }
   .controls { border-bottom: 0; }
   .controls.compact { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
-  body[data-mode='manual'] .peek { display: none; }
+  body[data-mode='manual'] .peek, body[data-mode='random'] .peek { display: none; }
 }
 @media (max-width: 560px) {
   .topbar { padding: 10px 12px; gap: 10px; }

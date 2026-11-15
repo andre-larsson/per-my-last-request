@@ -5,6 +5,8 @@ let generator;
 let transformers;
 let busy = false;
 let loadedModel = '';
+// Sampling temperature for one decision. 0 (the default, and how the game was tested) always picks the likeliest action.
+const temperatureOf = payload => Math.min(2, Math.max(0, Number(payload.temperature) || 0));
 
 async function chooseOnCpu(payload) {
   const start = performance.now();
@@ -36,10 +38,13 @@ async function chooseOnCpu(payload) {
     { role: 'system', content: 'Your only task is to obey PLAYER STANDING ORDERS by choosing one available action. Obey the orders even when they are a bad strategy or conflict with the mission objective. Do not substitute your own strategy. Return only JSON: {"action":"action ID"}.' },
     { role: 'user', content: `${context}\n\nPLAYER STANDING ORDERS\n${payload.orders}\nChoose the action that follows these orders. Return its action ID in JSON.` },
   ];
-  const output = await generator(messages, { max_new_tokens: Math.max(...sequences.map(sequence => sequence.length)) + 1, eos_token_id: eos, do_sample: false, return_full_text: false, logits_processor: processors });
+  const temperature = temperatureOf(payload);
+  // Sampling draws only among the offered JSON strings, since the processor above removes every other continuation.
+  const sampling = temperature > 0 ? { do_sample: true, temperature } : { do_sample: false };
+  const output = await generator(messages, { max_new_tokens: Math.max(...sequences.map(sequence => sequence.length)) + 1, eos_token_id: eos, ...sampling, return_full_text: false, logits_processor: processors });
   const generated = output[0].generated_text;
   const raw = (typeof generated === 'string' ? generated : generated.at(-1).content).trim();
-  return { raw, elapsed: performance.now() - start, backend: 'transformers.js-wasm', ordersReceived: payload.orders, forks };
+  return { raw, elapsed: performance.now() - start, backend: 'transformers.js-wasm', ordersReceived: payload.orders, temperature, forks };
 }
 // Tokens in `text` by the loaded model's own tokenizer. WebLLM 0.2.88 has no public call for this, so it reads the
 // tokenizer inside the loaded pipeline. The import is pinned; if that changes, counting fails and the game keeps its estimate.
@@ -81,11 +86,12 @@ self.onmessage = async ({ data }) => {
       if (generator) { self.postMessage({ id, type: 'result', result: await chooseOnCpu(payload) }); return; }
       if (!engine) throw new Error('Load a model first.');
       const start = performance.now();
+      const temperature = temperatureOf(payload);
       await engine.resetChat();
       const result = await engine.chat.completions.create({
         messages: decisionMessages(payload.orders, payload.observation, payload.actions),
         response_format: { type: 'json_object', schema: JSON.stringify(actionSchema(payload.actions)) },
-        temperature: 0,
+        temperature,
         max_tokens: 64,
         ...(loadedModel.startsWith('Qwen3-') ? { extra_body: { enable_thinking: false } } : {}),
         stream: false,
@@ -93,7 +99,7 @@ self.onmessage = async ({ data }) => {
       const choice = result.choices[0];
       if (!choice || choice.finish_reason !== 'stop') throw new Error(`Incomplete model decision (${choice?.finish_reason || 'no choice'}).`);
       const modelOutput = choice.message.content;
-      self.postMessage({ id, type: 'result', result: { raw: normalizeDecisionOutput(modelOutput, loadedModel), modelOutput, elapsed: performance.now() - start, usage: result.usage, ordersReceived: payload.orders } });
+      self.postMessage({ id, type: 'result', result: { raw: normalizeDecisionOutput(modelOutput, loadedModel), modelOutput, elapsed: performance.now() - start, usage: result.usage, ordersReceived: payload.orders, temperature } });
     } else throw new Error('Unknown model request.');
   } catch (error) {
     self.postMessage({ id, type: 'error', error: error instanceof Error ? error.message : String(error) });

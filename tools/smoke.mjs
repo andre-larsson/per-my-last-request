@@ -6,6 +6,7 @@ import { serve, ROOT } from './serve.mjs';
 import { launch, sleep } from './chrome.mjs';
 import { findModel } from '../src/models.js';
 import { newGame, applyAction, nextMove } from '../src/game.js';
+import { BEAT_MS } from '../src/view.js';
 
 const llm = process.argv.includes('--llm');
 const gpuTest = llm && !process.argv.includes('--cpu');
@@ -26,7 +27,7 @@ await mkdir(artifacts,{recursive:true});
 // A stand-in for the model worker, injected by this test only. It answers the worker protocol with a fixed
 // preference order so the LLM-mode interface can be exercised without a download. It is not inference,
 // and nothing in the game can select it.
-const STUB_WORKER = `window.__stub = { delay: 30, replies: [], seen: [], turns: [], overlaps: 0 };
+const STUB_WORKER = `window.__stub = { delay: 30, replies: [], seen: [], turns: [], temperatures: [], overlaps: 0 };
 window.Worker = class {
   postMessage({ id, type, payload }) {
     const reply = (message, ms) => setTimeout(() => { if (!this.dead) this.onmessage?.({ data: message }); }, ms);
@@ -40,6 +41,7 @@ window.Worker = class {
     const choice = window.__stub.replies.shift() ?? ['finish', 'quick', 'advance', 'depart'].find(id => offered.includes(id));
     window.__stub.seen.push(payload.orders);
     window.__stub.turns.push(payload.observation.progress.turn);
+    window.__stub.temperatures.push(payload.temperature);
     const ms = window.__stub.delay;
     setTimeout(() => { this.busy = false; }, ms);
     reply({ id, type: 'result', result: { raw: choice === 'garbage' ? 'not json' : JSON.stringify({ action: choice }), elapsed: ms, ordersReceived: payload.orders } }, ms);
@@ -221,6 +223,34 @@ async function stubbedLlmFlow(page, url) {
   assert.equal(await snap('playing'), false, 'Skip ends the playback');
   await page.click('#run');
   await page.eval(`QuestDemo.setPace('instant')`);
+  // Temperature: 0 unless the player changes it, sent with every decision, and fixed for a trial like the orders.
+  await page.click('#reset'); // Also ends the run paused just above.
+  assert.equal(await snap('temperature'), 0, 'The default temperature is 0, as tested');
+  assert.equal(await page.eval('window.__stub.temperatures.every(t => t === 0)'), true, 'Every decision so far was asked at 0');
+  const setTemperature = value => page.eval(`(() => { const t = document.querySelector('#temperature'); t.value = '${value}'; t.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+  const lastTemperature = () => page.eval('window.__stub.temperatures.at(-1)');
+  await setTemperature(0.7);
+  assert.deepEqual([await page.eval('document.querySelector("#temperature-value").textContent'), await snap('temperature')], ['0.7', 0.7]);
+  assert.match(await page.eval('document.querySelector("#model-details").textContent'), /temperature 0\.7/, 'A temperature above 0 shows outside the settings too');
+  await page.eval(`QuestDemo.setPace('step'); QuestDemo.setPace('instant')`);
+  await page.click('#run');
+  await page.waitFor('!QuestDemo.snapshot().running');
+  await page.click('#run');
+  await page.waitFor('QuestDemo.snapshot().game.turn === 2 && !QuestDemo.snapshot().running');
+  assert.equal(await lastTemperature(), 0.7, 'The worker is asked at the chosen temperature');
+  await setTemperature(0.3);
+  assert.match(await page.eval('document.querySelector("#temperature-note").textContent'), /keeps temperature 0\.7/);
+  await page.click('#run');
+  await page.waitFor('QuestDemo.snapshot().game.turn === 3 && !QuestDemo.snapshot().running');
+  assert.deepEqual([await lastTemperature(), await snap('runTemperature')], [0.7, 0.7], 'A change mid-trial waits for the next trial');
+  await page.click('#reset');
+  await page.click('#run');
+  await page.waitFor('!QuestDemo.snapshot().running');
+  await page.click('#run');
+  await page.waitFor('QuestDemo.snapshot().game.turn === 2 && !QuestDemo.snapshot().running');
+  assert.equal(await lastTemperature(), 0.3, 'The next trial uses the new value');
+  await setTemperature(0);
+  await page.click('#reset');
   await page.viewport(390, 844, true);
   assert.equal(await page.eval('document.documentElement.scrollWidth > innerWidth'), false, 'LLM controls fit at 390px');
   await page.screenshot(join(artifacts, 'flow-phone.png'));
@@ -248,7 +278,65 @@ async function publishedSiteHasNoSandbox(page) {
     await page.click('#help-toggle');
     assert.doesNotMatch(await page.eval('document.body.innerText'), /manual/i, 'No visible text mentions manual play');
     assert.equal(await page.eval('QuestDemo.snapshot().mode'), 'llm');
+    // The Random hero is offered online: two choices under "Who plays the hero?", and a run needs no model.
+    await page.eval('document.querySelector("#help").close()');
+    assert.deepEqual(await page.eval('[...document.querySelectorAll(".segmented button")].filter(b => b.checkVisibility()).map(b => b.dataset.mode)'), ['llm', 'random']);
+    await page.click('button[data-mode="random"]');
+    assert.equal(await page.eval('QuestDemo.snapshot().mode'), 'random');
+    assert.equal(await page.eval('!document.querySelector("#run").hidden && QuestDemo.snapshot().modelReady === false'), true, 'Random runs without a model on the published site');
+    assert.doesNotMatch(await page.eval('document.body.innerText'), /manual/i, 'The Random note does not mention manual play');
+    await page.screenshot(join(artifacts, 'published-random.png'));
   } finally { await new Promise(resolve => site.close(resolve)); }
+}
+/**
+ * The Random hero: no model is loaded or asked, the orders are not read, and it uses the same run controls as the
+ * model hero (Run, Pause, Continue, turn-by-turn stops). Every pick is labelled as random.
+ */
+async function randomHeroFlow(page) {
+  const snap = expression => page.eval(`QuestDemo.snapshot().${expression}`);
+  await page.click('button[data-mode="random"]');
+  await page.click('[data-level="tutorial"]');
+  if (await snap('game.turn') > 0) await page.click('#reset');
+  assert.deepEqual([await snap('mode'), await snap('modelReady'), await page.eval('document.body.dataset.mode')], ['random', false, 'random']);
+  assert.equal(await page.eval('!document.querySelector("#run").hidden && document.querySelector("#load-cta").hidden && document.querySelector("#manual-cta").hidden'), true, 'Random runs without a model');
+  assert.equal(await page.eval('document.querySelector("#model-options").hidden && !document.querySelector("#random-note").hidden'), true, 'The model panel gives way to the Random note');
+  assert.match(await page.eval('document.querySelector("#run").textContent'), /Run at random/);
+  // Turn by turn: the first Run walks to the rat (no choice), the next one picks at random among the rat fight's options.
+  await page.eval(`QuestDemo.setPace('step')`); // Also ends the instant pace the manual checks used.
+  await page.click('#run');
+  await page.waitFor('!QuestDemo.snapshot().running && !QuestDemo.snapshot().playing');
+  assert.deepEqual([await snap('game.turn'), await snap('game.log[0].source'), await snap('reviewing')], [1, 'auto', 1]);
+  await page.click('#run');
+  await page.waitFor('QuestDemo.snapshot().phase === "consider"');
+  assert.match(await page.eval('document.querySelector("#options-title").textContent'), /Turn 2 · The hero picks one of \d at random/);
+  assert.match(await page.eval('document.querySelector("#run-status").textContent'), /picking at random\. Your orders are not read/);
+  // Pause holds the pick: the options stay up past the time they normally show, and no turn is spent.
+  await page.click('#run');
+  assert.equal(await snap('paused'), true);
+  await sleep(BEAT_MS.consider + 400);
+  assert.deepEqual([await snap('game.turn'), await snap('phase')], [1, 'consider'], 'A paused Random hero picks nothing');
+  await page.click('#run');
+  await page.waitFor('!QuestDemo.snapshot().running && !QuestDemo.snapshot().playing');
+  assert.deepEqual([await snap('game.turn'), await snap('game.log[1].source'), await snap('reviewing')], [2, 'random', 2]);
+  assert.match(await page.eval('document.querySelector("#turn-feed").textContent'), /Turn 2 · Picked at random/);
+  assert.match(await page.eval('document.querySelector("#journal .log-entry .log-source").textContent'), /Random pick/);
+  // The orders are not read, so editing them mid-trial restarts nothing.
+  const typed = await page.eval('document.querySelector("#orders").value');
+  await page.eval(`(() => { const o = document.querySelector('#orders'); o.value = 'Edited during a random trial.'; o.dispatchEvent(new Event('input')); })()`);
+  assert.equal(await page.eval('document.querySelector("#orders-notice").hidden'), true);
+  assert.doesNotMatch(await page.eval('document.querySelector("#run").textContent'), /Restart/);
+  // The rest of the trial, unattended, to its end.
+  await page.eval(`QuestDemo.setPace('normal'); QuestDemo.setPace('instant')`); // Not the Pace button: it would store the pace.
+  await page.click('#run');
+  await page.waitFor('["won", "lost"].includes(QuestDemo.snapshot().game.status) && !QuestDemo.snapshot().running', 20000);
+  const log = await snap('game.log');
+  assert.equal(log.every(entry => entry.source === 'random' || entry.source === 'auto'), true, 'Only random picks and forced moves');
+  assert.equal(await snap('modelReady'), false, 'No model was loaded');
+  assert.match(await page.eval('document.querySelector("#verdict").textContent'), /picked at random/, 'The verdict does not credit the orders');
+  assert.match(await page.eval('document.querySelector("#run").textContent'), /Run again/);
+  await page.eval(`(() => { const o = document.querySelector('#orders'); o.value = ${JSON.stringify(typed)}; o.dispatchEvent(new Event('input')); })()`);
+  await page.click('#reset');
+  await page.click('button[data-mode="manual"]');
 }
 /** Chooses a pace with the real Pace button, which cycles Turn by turn → Normal → Fast. */
 async function choosePace(page, name) {
@@ -450,12 +538,14 @@ try {
     await page.viewport(390,844,true);
     assert.equal(await page.eval('[...document.querySelectorAll(".tabs button")].every(tab => tab.getBoundingClientRect().right <= innerWidth)'),true,'All four assignment tabs fit on a phone');
     await page.viewport(1440,1100);
+    await randomHeroFlow(page);
     await stubbedLlmFlow(page, `http://127.0.0.1:${server.address().port}/`);
     await publishedSiteHasNoSandbox(page);
     await writeFile(join(artifacts,'browser-report.json'),JSON.stringify({kind:'manual UI verification plus LLM-mode interface flow with a stub worker; no model inference',result,errors:page.errors},null,2));
     console.log(`Browser UI passed: desktop, 390px, 360px, potion costs, restart, complete victory in ${result.game.turn} turns, music cues and switch.`);
-    console.log('Published build checked: no Manual sandbox controls or text.');
-    console.log('LLM-mode interface flow passed with a stub worker (no inference): load, thinking, stale reply, parse failure and retry, edited orders, turn playback with prepared decisions, pause during playback and during thinking, turn-by-turn pace, skip.');
+    console.log('Random hero checked without a model: turn by turn, pause holds the pick, edited orders ignored, a whole trial, labels and verdict.');
+    console.log('Published build checked: no Manual sandbox controls or text; Random offered.');
+    console.log('LLM-mode interface flow passed with a stub worker (no inference): load, thinking, stale reply, parse failure and retry, edited orders, turn playback with prepared decisions, pause during playback and during thinking, turn-by-turn pace, skip, temperature.');
   } else {
     // The test profile can be persistent (QUEST_PROFILE), so orders saved by an earlier run must not leak into this one.
     const tutorialOrders = 'Fight the practice rat using quick strikes. After earning its training stamp, return to camp and submit the assignment.';
@@ -467,6 +557,9 @@ try {
     }
     assert.equal(await page.eval('QuestDemo.snapshot().game.level'),'tutorial','The model checks start on the introductory assignment');
     assert.equal(await page.eval('document.querySelector("#orders").value'),tutorialOrders,'The careful example orders are in place');
+    // QUEST_TEMPERATURE runs the model at that sampling temperature. The default, 0, is how every recorded result was made.
+    await page.eval(`(() => { const t = document.querySelector('#temperature'); t.value = '${Number(process.env.QUEST_TEMPERATURE || 0)}'; t.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+    assert.equal(await page.eval('QuestDemo.snapshot().temperature'),Number(process.env.QUEST_TEMPERATURE || 0),'QUEST_TEMPERATURE is between 0 and 1.5, in steps of 0.1');
     if(gpuTest) {
       if(!gpu)throw Error('WebGPU did not expose an adapter for the inference test.');
       await page.eval(`document.querySelector('#model').value=${JSON.stringify(customModel || (softwareGpu?'Qwen2.5-0.5B-Instruct-q4f32_1-MLC':'Qwen2.5-3B-Instruct-q4f32_1-MLC'))};document.querySelector('#model').dispatchEvent(new Event('change',{bubbles:true}));`);
@@ -581,7 +674,7 @@ try {
         optionalRetreated:`${count(d=>d.at==='Prize bruiser',d=>d.action==='retreat')} of ${count(d=>d.at==='Prize bruiser')}`,
         llmDecisions:decisions.length, autoMoves:snapshot.game.log.filter(e=>e.source==='auto').length, manual:snapshot.game.log.filter(e=>e.source==='manual').length,
         playback:{pace:snapshot.pace,seconds:Math.round((Date.now()-trialStart)/1000),timed:Object.keys(timings).length,preparedAhead:Object.values(timings).filter(t=>t.preparedAhead).length,visibleWaitMs:Object.values(timings).reduce((sum,t)=>sum+(t.waitedMs||0),0),modelMs:Object.values(timings).reduce((sum,t)=>sum+t.modelMs,0)}};
-      const record={level,preset,summary,decisions,timings,orders:snapshot.orders,status:snapshot.status,model:loadedSelection};
+      const record={level,preset,summary,decisions,timings,orders:snapshot.orders,status:snapshot.status,model:loadedSelection,temperature:snapshot.runTemperature};
       await writeFile(join(artifacts,`${file}.json`),JSON.stringify({...record,snapshot},null,2));
       await page.screenshot(join(artifacts,`${file}.png`));
       console.log(`${label} LLM trial summary:`,JSON.stringify(summary));
