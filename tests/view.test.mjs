@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { newGame, applyAction, availableActions, TILES, LOW_HP, observation, nextMove, strikeDamage, commendations, PRESETS, TUTORIAL_PRESETS, LEVELS, LEVEL_ORDER } from '../src/game.js';
-import { objectiveSteps, sceneFor, deltas, journalHtml, verdictFor, verdictHtml, actionTally, ordersSize, estimateTokens, TILE_ART, turnBeats, displayAt, turnFeedHtml, shoutFor, BEAT_MS, musicFor, clockUrgent } from '../src/view.js';
+import { goalLine, goalChecks, objectiveSteps, sceneFor, deltas, journalHtml, verdictFor, verdictHtml, actionTally, ordersSize, estimateTokens, TILE_ART, turnBeats, displayAt, turnFeedHtml, shoutFor, BEAT_MS, musicFor, clockUrgent } from '../src/view.js';
 import { renderMap, mapLayout } from '../src/map.js';
 
 const play = (state, ...ids) => ids.reduce((s, id) => applyAction(s, id), state);
@@ -14,6 +14,89 @@ function tutorialRetreats() {
   return s;
 }
 
+test('the goal line states what the engine checks: these opponents, submitting at camp, the turn limit, and how a trial is lost', () => {
+  assert.equal(goalLine(newGame('tutorial')), 'Beat the practice rat, then submit at camp within 12 turns. The trial fails if HP reaches 0 or the turns run out.');
+  assert.equal(goalLine(newGame('warning')), 'Beat the practice rat, the Tin boar and Quickfoot, then submit at camp within 16 turns. The trial fails if HP reaches 0 or the turns run out.');
+  assert.equal(goalLine(newGame('prize')), 'Beat Quickfoot and the champion, then submit at camp within 30 turns. The trial fails if HP reaches 0 or the turns run out.');
+  assert.equal(goalLine(newGame('circuit')), 'Beat the practice rat, the Tin boar, Quickfoot and the champion, then submit at camp within 32 turns. The trial fails if HP reaches 0 or the turns run out.');
+  const names = { rat: 'practice rat', boar: 'Tin boar', quickfoot: 'Quickfoot' };
+  for (const level of LEVEL_ORDER) {
+    const rules = LEVELS[level];
+    const line = goalLine(newGame(level));
+    // Exactly the opponents the engine requires: submitting is offered at camp with all of them beaten, and not with one missing.
+    for (const [stamp, name] of Object.entries(names)) assert.equal(line.includes(name), rules.stamps.includes(stamp), `${level}: ${name}`);
+    assert.equal(line.includes('champion'), rules.champion, `${level}: champion`);
+    const ready = { ...newGame(level), status: 'active', position: 0, stamps: [...rules.stamps], champion: rules.champion };
+    assert.ok(availableActions(ready).some(a => a.id === 'finish'), `${level}: everything named lets the hero submit`);
+    for (const missing of [...rules.stamps, ...(rules.champion ? ['champion'] : [])]) {
+      const short = missing === 'champion' ? { ...ready, champion: false } : { ...ready, stamps: rules.stamps.filter(st => st !== missing) };
+      assert.equal(availableActions(short).some(a => a.id === 'finish'), false, `${level}: cannot submit without ${missing}`);
+    }
+    // "Within N turns": submitting as the last allowed turn still wins; the turn after the limit is never reached.
+    const late = applyAction({ ...ready, turn: rules.turnLimit - 1 }, 'finish');
+    assert.deepEqual([late.turn, late.status], [rules.turnLimit, 'won'], `${level}: submitting on turn ${rules.turnLimit} counts`);
+    const timedOut = applyAction({ ...ready, stamps: [], champion: false, turn: rules.turnLimit - 1 }, 'advance');
+    assert.equal(timedOut.status, 'lost', `${level}: the turns run out`);
+  }
+});
+const row = check => `${check.state}${check.cause ? ' (cause)' : ''}: ${check.label}: ${check.note}`;
+test('the goal checklist says, with evidence from the log, why a trial passed or failed', () => {
+  assert.deepEqual(goalChecks(tutorialWin()).map(row), [
+    'done: Beat the practice rat: Beaten on turn 3',
+    'done: Submit at camp: Submitted on turn 6',
+    'done: Keep HP above 0: Ended with 37 of 40 HP',
+    'done: Stay within 12 turns: 6 of 12 used',
+  ]);
+  // Out of turns after retreating from every fight: the retreats are the evidence, the clock is the cause.
+  assert.deepEqual(goalChecks(tutorialRetreats()).map(row), [
+    'failed: Beat the practice rat: Retreated on turns 2, 6 and 10',
+    'failed: Submit at camp: Needed the practice rat first',
+    'done: Keep HP above 0: Ended with 34 of 40 HP',
+    'failed (cause): Stay within 12 turns: All 12 used before submitting',
+  ]);
+  // Quick strikes at everything: two stamps, then health runs out at the optional prize fight.
+  let brawl = newGame('circuit');
+  while (availableActions(brawl).length) brawl = applyAction(brawl, brawl.enemy ? 'quick' : brawl.status === 'ready' ? 'depart' : 'advance');
+  assert.deepEqual(goalChecks(brawl).map(row), [
+    'done: Beat the practice rat: Beaten on turn 3',
+    'done: Beat the Tin boar: Beaten on turn 10',
+    'failed: Beat Quickfoot: Never reached',
+    'failed: Beat the champion: Never reached',
+    'failed: Submit at camp: Needed Quickfoot and the champion first',
+    'failed (cause): Keep HP above 0: Ran out on turn 13, at Prize bruiser',
+    'done: Stay within 32 turns: 13 of 32 used',
+  ]);
+  // Dying in a required fight names it; so does running out of turns mid-fight.
+  const boar = play(newGame('circuit'), 'depart', 'quick', 'quick', 'advance', 'advance');
+  assert.equal(goalChecks({ ...boar, hp: 0, status: 'lost' })[1].note, 'The hero went down fighting it, on turn 5');
+  assert.equal(goalChecks({ ...boar, status: 'lost' })[1].note, 'Still fighting it when the turns ran out');
+  // Everything beaten but never submitted.
+  const ready = { ...newGame('tutorial'), status: 'lost', turn: 12, stamps: ['rat'] };
+  assert.equal(goalChecks(ready)[1].note, 'Ready, but the turns ran out before submitting');
+  // While the trial runs, nothing has failed yet.
+  const running = goalChecks(boar);
+  assert.deepEqual(running.map(check => check.state), ['done', 'open', 'open', 'open', 'open', 'open', 'open']);
+  assert.equal(running[1].note, 'Fighting it now');
+  assert.equal(running[4].note, 'Needs the Tin boar, Quickfoot and the champion first');
+  // Every assignment: one row per opponent the goal line names, then submit and the two limits; exactly one cause when lost.
+  for (const level of LEVEL_ORDER) {
+    const rules = LEVELS[level];
+    assert.equal(goalChecks(newGame(level)).length, rules.stamps.length + (rules.champion ? 1 : 0) + 3);
+  }
+  for (const lost of [tutorialRetreats(), brawl]) assert.equal(goalChecks(lost).filter(check => check.cause).length, 1);
+  assert.equal(goalChecks(tutorialWin()).some(check => check.cause), false);
+});
+test('the verdict shows the goal checklist, and the strip marks what a lost trial left undone', () => {
+  const html = verdictHtml(verdictFor(tutorialRetreats()));
+  assert.match(html, /<ul class="checks" aria-label="Goal checklist">/);
+  assert.equal((html.match(/<li class="check /g) || []).length, 4);
+  assert.match(html, /class="check failed limit cause".*Ended the trial/);
+  assert.match(html, /<span class="sr-only">: not met\.<\/span>/);
+  assert.equal((verdictHtml(verdictFor(tutorialWin())).match(/class="check done/g) || []).length, 4);
+  const steps = objectiveSteps(tutorialRetreats());
+  assert.deepEqual(steps.map(step => [step.failed, step.next]), [[true, false], [true, false]]);
+  assert.equal(steps[0].note, 'Retreated on turns 2, 6 and 10');
+});
 test('the checklist ticks steps as they are earned and marks exactly one next step', () => {
   const start = objectiveSteps(newGame('circuit'));
   assert.deepEqual(start.map(step => step.label), ['Practice rat', 'Tin boar', 'Quickfoot', 'Champion', 'Submit at camp']);
@@ -88,7 +171,8 @@ test('the verdict names what went wrong and what the hero mostly did', () => {
   const overdue = tutorialRetreats();
   const lost = verdictFor(overdue);
   assert.equal(lost.stamp, 'Overdue');
-  assert.match(lost.text, /0 of 1 stamp earned/);
+  assert.equal(lost.text, 'All 12 turns used before the assignment was submitted.');
+  assert.match(verdictHtml(lost), /Needed the practice rat first/, 'the checklist says what was missing');
   assert.equal(actionTally(overdue.log).find(t => t.label === 'Retreat').count, 3);
   let dead = newGame('circuit');
   while (availableActions(dead).length) dead = applyAction(dead, dead.enemy ? 'quick' : dead.status === 'ready' ? 'depart' : 'advance');

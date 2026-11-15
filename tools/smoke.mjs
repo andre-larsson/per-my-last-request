@@ -333,6 +333,11 @@ async function randomHeroFlow(page) {
   assert.equal(log.every(entry => entry.source === 'random' || entry.source === 'auto'), true, 'Only random picks and forced moves');
   assert.equal(await snap('modelReady'), false, 'No model was loaded');
   assert.match(await page.eval('document.querySelector("#verdict").textContent'), /picked at random/, 'The verdict does not credit the orders');
+  // The goal checklist says why: the rat, submitting, and the two limits; a lost trial names exactly one cause.
+  const checks = await page.eval('[...document.querySelectorAll("#verdict .check")].map(li => ({ cls: li.className, text: li.textContent }))');
+  assert.equal(checks.length, 4);
+  assert.equal(checks.filter(c => /\bcause\b/.test(c.cls)).length, (await snap('game.status')) === 'lost' ? 1 : 0);
+  if ((await snap('game.status')) === 'lost') assert.equal(await page.eval('document.querySelectorAll("#objective .goal.failed").length') > 0, true, 'The strip marks what was left undone');
   assert.match(await page.eval('document.querySelector("#run").textContent'), /Run again/);
   await page.eval(`(() => { const o = document.querySelector('#orders'); o.value = ${JSON.stringify(typed)}; o.dispatchEvent(new Event('input')); })()`);
   await page.click('#reset');
@@ -493,6 +498,7 @@ try {
     assert.match(await page.eval('document.querySelector("#verdict").textContent'),/Assignment accepted/);
     assert.equal(await page.eval('document.querySelectorAll("#objective .goal.done").length'),5,'All five checklist steps are ticked');
     assert.match(await page.eval('document.querySelector("#verdict").textContent'),/Commendations \d of 4/,'The verdict lists commendations');
+    assert.deepEqual(await page.eval('[...document.querySelectorAll("#verdict .check")].map(li => li.className)'),Array(7).fill('check done').map((c,i)=>i>=5?`${c} limit`:c),'The goal checklist: four opponents, submit, and both limits, all met');
     assert.match(await page.eval('document.querySelector("#sword-value").textContent'),/buckler/i);
     assert.equal(await page.eval('document.querySelector("#next-level").hidden'),true,'The full circuit is the last assignment');
     await page.screenshot(join(artifacts,'victory.png'));
@@ -529,8 +535,13 @@ try {
       assert.equal(await page.eval(`document.querySelector('[data-level="${name}"]').getAttribute('aria-pressed')`),'true');
       assert.equal(await page.eval('document.querySelectorAll("#map .node").length'),stops,`${name} draws only its own stops`);
       assert.equal(await page.eval('document.querySelectorAll("#objective .goal").length'),goals);
+      // The goal is stated in words above the checklist, for the assignment on screen, and stays during the trial.
+      const goal = () => page.eval('(() => { const g = document.querySelector("#goal-text"); return g.checkVisibility() ? g.textContent : ""; })()');
+      assert.match(await goal(), new RegExp(`^Beat .+, then submit at camp within ${await page.eval('QuestDemo.snapshot().game.turnLimit')} turns\\. The trial fails if HP reaches 0`), `${name} states its goal`);
+      const stated = await goal();
       for (const id of win) await page.click(`[data-action="${id}"]`);
       assert.equal(await page.eval('QuestDemo.snapshot().game.status'),'won',`${name} is won through the controls`);
+      assert.equal(await goal(), stated, 'The goal stays on screen to the end');
       assert.equal(await page.eval('document.querySelector("#next-level").hidden'),false);
     }
     await page.click('#next-level');

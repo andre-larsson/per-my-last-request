@@ -2,6 +2,12 @@
 
 Original prototype checks on 2026-11-13, with model-selection checks added on 2026-11-14. This file distinguishes game-rule checks, browser UI checks, and genuine model inference.
 
+## Goal line and goal checklist (2026-11-15)
+
+- `npm test` passed (60 tests). New: the goal checklist for a tutorial win, a tutorial lost on time after three retreats, and a circuit brawl that dies at the prize bruiser, row by row with evidence; dying in a required fight and running out of turns mid-fight name that opponent; a lost trial has exactly one cause, a won one none; the verdict renders the checklist and the strip marks unfinished steps as failed after a loss. Also: the goal line for each assignment, word for word; it names exactly the opponents the engine requires (submitting is offered with all of them beaten and with none missing); submitting as the last allowed turn wins; running out of turns loses.
+- `npm run test:browser` passed. New: in Fair warning and Prize money the goal line is visible, names the assignment's turn limit, and is unchanged when the assignment is won. After the manual circuit win, the verdict's checklist has seven rows, all met. After the Random tutorial trial, it has four rows and, if the trial was lost, exactly one cause and a failed step in the strip.
+- `node tools/shots.mjs`: no rendered text under 12 px, no overflow. Checked by eye: setup at 1440 px, circuit smash at 390 px, circuit death at 1440 px, tutorial loss at 390 px, circuit win at 1180 px.
+
 ## Temperature and parallel model runs (2026-11-15)
 
 - `npm test` passed (57 tests). `npm run test:browser` passed. New, with the stub worker (no inference): the default temperature is 0 and every decision is asked at 0; at 0.7 the worker receives 0.7 and the model line shows it; changed to 0.3 mid-trial, the trial keeps 0.7 and the note says so; after Restart the worker receives 0.3.

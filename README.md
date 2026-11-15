@@ -93,6 +93,7 @@ A browser supporting the WebGPU API may still lack a usable adapter or enough me
 - The size of the orders, in words and tokens (the pieces of text a model reads). A loaded model counts the tokens with its own tokenizer; before that they are estimated and shown as "about". The size makes no claim about how well a model will follow the orders, and never changes how a trial plays.
 - Browser inference in a dedicated Web Worker. Both backends generate a JSON action ID. CPU decoding is restricted to the offered JSON strings; GPU decoding uses WebLLM's JSON Schema support.
 - Strict parsing, a second engine-side legality check, retry without consuming turns on format errors, and stale-response rejection after pause/restart/controller changes.
+- A goal line above the checklist for every assignment, and a goal checklist in the verdict that marks each condition met or not, with evidence from the log, and names what ended a lost trial.
 - Pause, a turn-by-turn pace, reset, editable standing orders, local prompt persistence, and a report export.
 - Turn playback decoupled from the engine: a turn resolves at once, then the stage replays it beat by beat while the model already reads the next turn.
 - Responsive layouts for three, two and one columns. The circuit map is code-drawn SVG. Portraits are generated illustrations stored in `assets/art/` (requests in `assets-src/wanted-images.tsv`); a letter placeholder appears if one is missing. No external font dependencies.

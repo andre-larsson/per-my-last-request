@@ -3,7 +3,7 @@ import { parseDecision, decisionMessages } from './protocol.js';
 import { LocalModel } from './model.js';
 import { renderMap } from './map.js';
 import { MODELS, findModel, modelSize, checkDevice, recommendModel, selectedModelAdvice } from './models.js';
-import { escapeHtml, artUrl, objectiveSteps, sceneFor, journalHtml, verdictFor, verdictHtml, stampTarget, ordersSize, turnBeats, displayAt, turnFeedHtml, shoutFor, PACES, PACE_ORDER, BEAT_MS, clockUrgent, musicFor } from './view.js';
+import { escapeHtml, artUrl, goalLine, objectiveSteps, sceneFor, journalHtml, verdictFor, verdictHtml, stampTarget, ordersSize, turnBeats, displayAt, turnFeedHtml, shoutFor, PACES, PACE_ORDER, BEAT_MS, clockUrgent, musicFor } from './view.js';
 import { unlockSound, setSoundEnabled, playSound } from './sound.js';
 import { unlockMusic, setMusicEnabled, setMusic, musicPlaying, musicState } from './music.js';
 
@@ -267,13 +267,15 @@ function renderBrief(s) {
     tab.setAttribute('aria-pressed', String(tab.dataset.level === level));
     tab.disabled = locked();
   });
+  $('goal-text').textContent = goalLine(s);
   const steps = objectiveSteps(s);
   const done = new Set(steps.filter(step => step.done).map(step => step.label));
   const earlier = painted.objectiveEpoch === epoch ? painted.objectiveDone : done;
-  paint('objective', `${epoch}:${level}:${steps.map(step => `${+step.done}${+step.next}`).join('')}`, () => {
+  paint('objective', `${epoch}:${level}:${steps.map(step => `${+step.done}${+step.next}${+step.failed}${step.note}`).join('')}`, () => {
     $('objective').innerHTML = steps.map(step => {
       const fresh = step.done && !earlier.has(step.label); // Newly earned: gets the stamping animation once.
-      return `<li class="goal ${step.kind}${step.done ? ' done' : ''}${step.next ? ' next' : ''}${fresh ? ' fresh' : ''}"><span class="goal-mark" aria-hidden="true">${step.done ? '✓' : `<img src="${artUrl(step.art)}" alt="" onerror="this.remove()">`}</span><span class="goal-text"><span class="sr-only">${step.kind === 'stamp' ? 'Stamp: ' : step.kind === 'champion' ? 'Defeat: ' : ''}</span>${escapeHtml(step.label)}<span class="sr-only">${step.done ? ' (done)' : ''}</span></span></li>`;
+      // The evidence ("Beaten on turn 3", "Retreated on turn 2") shows on hover; the report's checklist shows it at the end.
+      return `<li class="goal ${step.kind}${step.done ? ' done' : ''}${step.failed ? ' failed' : ''}${step.next ? ' next' : ''}${fresh ? ' fresh' : ''}" title="${escapeHtml(step.note)}"><span class="goal-mark" aria-hidden="true">${step.done ? '✓' : step.failed ? '✗' : `<img src="${artUrl(step.art)}" alt="" onerror="this.remove()">`}</span><span class="goal-text"><span class="sr-only">${step.kind === 'stamp' ? 'Stamp: ' : step.kind === 'champion' ? 'Defeat: ' : ''}</span>${escapeHtml(step.label)}<span class="sr-only">${step.done ? ' (done)' : step.failed ? ` (not done: ${escapeHtml(step.note)})` : ''}</span></span></li>`;
     }).join('');
   });
   painted.objectiveEpoch = epoch;

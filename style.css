@@ -108,7 +108,10 @@ button:not(:disabled):active { transform: translateY(1px); }
   .tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px; width: 100%; }
   .tabs button { padding-inline: 8px; text-align: left; }
 }
-.brief { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 4px 20px 16px; }
+.brief { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 16px; padding: 4px 20px 16px; }
+/* The win and loss conditions, in words, for the whole trial. The checklist under it ticks them off. */
+.brief-goal { width: 100%; font-size: 14px; line-height: 1.45; color: var(--ink-soft); }
+.brief-goal .section-label { margin-right: 6px; color: var(--ochre); }
 .objective { display: flex; }
 .goal { position: relative; display: grid; justify-items: center; gap: 4px; width: 76px; text-align: center; }
 .goal + .goal::before { content: ''; position: absolute; top: 19px; right: calc(50% + 22px); width: 32px; border-top: 2px dotted var(--line-strong); }
@@ -117,6 +120,8 @@ button:not(:disabled):active { transform: translateY(1px); }
 .goal.stamp:not(.done) .goal-mark, .goal.champion:not(.done) .goal-mark { border-color: var(--rust); }
 .goal.next .goal-mark { box-shadow: 0 0 0 4px var(--ochre-soft); border-color: var(--ochre); }
 .goal.done .goal-mark { border: 2px solid var(--green); background: var(--green); color: var(--green-ink); font-weight: 800; transform: rotate(-8deg); }
+.goal.failed .goal-mark { border: 2px solid var(--rust); background: var(--blood); color: var(--ink); font-weight: 800; }
+.goal.failed .goal-text { color: var(--rust); }
 .goal.fresh .goal-mark { animation: stamp-down .5s cubic-bezier(.2, 1.4, .4, 1) both; }
 .goal-text { font-size: 13px; font-weight: 650; line-height: 1.2; color: var(--muted); }
 .goal.next .goal-text, .goal.done .goal-text { color: var(--ink); }
@@ -234,6 +239,18 @@ button:not(:disabled):active { transform: translateY(1px); }
 .verdict h3 { font: 400 26px/1.15 var(--serif); letter-spacing: -.01em; }
 .verdict p { font-size: 15px; }
 .verdict-hint { font-weight: 650; }
+/* Why the trial passed or failed: one line per condition of the goal, with the evidence. */
+.checks { display: grid; gap: 6px; margin: 4px 0 2px; padding: 10px 12px; list-style: none; border: 1px solid var(--line); border-radius: var(--radius); background: var(--inset); }
+.check { display: grid; grid-template-columns: 20px minmax(0, 13em) minmax(0, 1fr); align-items: baseline; gap: 2px 10px; font-size: 14px; line-height: 1.4; }
+.check:not(.limit) + .limit { margin-top: 4px; padding-top: 8px; border-top: 1px dashed var(--line); }
+.check-mark { font-weight: 800; text-align: center; }
+.check.done .check-mark { color: var(--green); }
+.check.failed .check-mark, .check.failed .check-label { color: var(--rust); }
+.check.open .check-mark { color: var(--muted); }
+.check-label { font-weight: 650; }
+.check-note { color: var(--muted); }
+.check.cause .check-note { color: var(--ink); }
+.check-cause { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 2px; background: var(--blood); color: var(--ink); font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
 .commendations { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .commendations .section-label { flex-basis: 100%; }
 .medal { padding: 3px 10px; border-radius: 3px; border: 1px dashed var(--line-strong); color: var(--muted); font-size: 14px; font-weight: 650; white-space: nowrap; }
@@ -489,6 +506,8 @@ footer { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8p
   .stage-foot { margin-top: 12px; }
   .verdict { padding: 14px; }
   .verdict-body { padding-right: 0; padding-top: 44px; }
+  .check { grid-template-columns: 20px minmax(0, 1fr); }
+  .check-note { grid-column: 2; }
   .verdict h3 { font-size: 23px; }
   .rubber { top: 10px; right: auto; left: 14px; font-size: 17px; }
   .options-wrap { padding-inline: 12px; }

@@ -11,16 +11,76 @@ export const artUrl = name => `./assets/art/${name}.webp`;
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 export const stampTarget = game => levelOf(game).stamps.length;
 
-/** The assignment as an ordered checklist. Exactly one unfinished step is marked `next`. */
+/**
+ * The assignment as an ordered checklist. Exactly one unfinished step is marked `next` while the trial runs; once a
+ * trial is lost, every unfinished step is `failed`. Each step carries the evidence from `goalChecks` as its `note`.
+ */
 export function objectiveSteps(game) {
   const rules = levelOf(game);
   const steps = TILES.filter(tile => tile.stamp && rules.stamps.includes(tile.stamp))
     .map(tile => ({ kind: 'stamp', label: tile.name, art: TILE_ART[TILES.indexOf(tile)], done: game.stamps.includes(tile.stamp) }));
   if (rules.champion) steps.push({ kind: 'champion', label: 'Champion', art: 'champion', done: game.champion });
   steps.push({ kind: 'home', label: 'Submit at camp', art: 'camp', done: game.status === 'won' });
+  // goalChecks lists the same steps in the same order, then the two limits.
+  const checks = goalChecks(game);
   // Stamps can be earned in any order, so only the final steps wait for the earlier ones.
-  const next = steps.find(step => !step.done);
-  return steps.map(step => ({ ...step, next: step === next }));
+  const next = game.status === 'lost' ? null : steps.find(step => !step.done);
+  return steps.map((step, i) => ({ ...step, next: step === next, failed: checks[i].state === 'failed', note: checks[i].note }));
+}
+
+// How the goal names each stamp's opponent.
+const STAMP_FOES = { rat: 'the practice rat', boar: 'the Tin boar', quickfoot: 'Quickfoot' };
+const listed = names => names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
+const LIMITS = new Set(['health', 'turns']);
+/**
+ * Why the hero passed or failed: each condition of the goal line, with evidence from the log. First the opponents to
+ * beat (in course order), then submitting at camp, then the two limits (HP above 0, the turn limit). `state` is 'done',
+ * 'failed', or 'open' while the trial still runs. The limit that ended a lost trial is marked `cause`.
+ */
+export function goalChecks(game) {
+  const rules = levelOf(game);
+  const over = game.status === 'won' || game.status === 'lost';
+  const dead = game.status === 'lost' && game.hp === 0;
+  const timedOut = game.status === 'lost' && !dead;
+  const foes = TILES.map((tile, index) => ({ tile, index })).filter(({ tile }) => (tile.stamp && rules.stamps.includes(tile.stamp)) || (tile.boss && rules.champion))
+    .map(({ tile, index }) => tile.boss
+      ? { index, name: 'the champion', kind: 'champion', event: 'champion', done: game.champion }
+      : { index, name: STAMP_FOES[tile.stamp], kind: 'stamp', event: 'stamp', done: game.stamps.includes(tile.stamp) });
+  const checks = foes.map(foe => {
+    const name = TILES[foe.index].name;
+    const here = game.log.filter(entry => entry.at === name);
+    const beaten = here.find(entry => entry.events?.some(event => event.kind === foe.event));
+    const retreats = here.filter(entry => entry.action === 'retreat').map(entry => entry.turn);
+    const fighting = Boolean(game.enemy) && game.position === foe.index;
+    const note = foe.done ? (beaten ? `Beaten on turn ${beaten.turn}` : 'Beaten') // A hand-made state may have no log.
+      : fighting && dead ? `The hero went down fighting it, on turn ${game.turn}`
+      : fighting && timedOut ? 'Still fighting it when the turns ran out'
+      : fighting ? 'Fighting it now'
+      : retreats.length ? `Retreated on turn${retreats.length > 1 ? 's' : ''} ${listed(retreats.map(String))}`
+      : over ? 'Never reached' : 'Not reached yet';
+    return { kind: foe.kind, label: `Beat ${foe.name}`, state: foe.done ? 'done' : over ? 'failed' : 'open', note };
+  });
+  const missing = foes.filter(foe => !foe.done).map(foe => foe.name);
+  checks.push({ kind: 'submit', label: 'Submit at camp', state: game.status === 'won' ? 'done' : over ? 'failed' : 'open',
+    note: game.status === 'won' ? `Submitted on turn ${game.turn}`
+      : !missing.length ? (over ? `Ready, but ${dead ? 'the hero went down' : 'the turns ran out'} before submitting` : 'Ready: return to camp and submit')
+      : `${over ? 'Needed' : 'Needs'} ${listed(missing)} first` });
+  checks.push({ kind: 'health', label: 'Keep HP above 0', state: dead ? 'failed' : over ? 'done' : 'open', cause: dead,
+    note: dead ? `Ran out on turn ${game.turn}, at ${currentTile(game).name}` : `${over ? 'Ended with' : 'Now'} ${game.hp} of ${game.maxHp} HP` });
+  checks.push({ kind: 'turns', label: `Stay within ${game.turnLimit} turns`, state: timedOut ? 'failed' : over ? 'done' : 'open', cause: timedOut,
+    note: timedOut ? `All ${game.turnLimit} used before submitting` : `${game.turn} of ${game.turnLimit} used` });
+  return checks;
+}
+export const isLimit = check => LIMITS.has(check.kind);
+
+/**
+ * The assignment's goal, and how a trial is lost, in plain words. Built from the rules table, so it says exactly what
+ * the engine checks: the stamps, the champion, submitting at camp, and the turn limit (submitting on the last turn counts).
+ */
+export function goalLine(game) {
+  const rules = levelOf(game);
+  const foes = [...rules.stamps.map(stamp => STAMP_FOES[stamp]), ...(rules.champion ? ['the champion'] : [])];
+  return `Beat ${listed(foes)}, then submit at camp within ${game.turnLimit} turns. The trial fails if HP reaches 0 or the turns run out.`;
 }
 
 /** The opponent's announced move this turn, in the words the hero is told. */
@@ -254,19 +314,16 @@ export function verdictFor(game) {
     const hint = nextLevel(game.level) ? NEXT_HINTS[game.level]
       : !missed.length ? 'Every commendation in one trial. The guild suspects paperwork fraud.'
       : `Different orders earn different commendations. Still unclaimed: ${missed.map(m => `${m.label} (${m.rule.replace(/\.$/, '').toLowerCase()})`).join('; ')}.`;
-    return { tone: 'won', stamp: 'Accepted', title: 'Assignment accepted.', text: `Home in ${plural(game.turn, 'turn')} with ${game.hp} HP and ${plural(game.potions, 'potion')} to spare. The hero would like to discuss the fee.`, hint: random ? `Luck, not orders: the hero picked at random. ${hint}` : hint, tally, commendations: medals };
+    return { tone: 'won', stamp: 'Accepted', title: 'Assignment accepted.', text: `Home in ${plural(game.turn, 'turn')} with ${game.hp} HP and ${plural(game.potions, 'potion')} to spare. The hero would like to discuss the fee.`, hint: random ? `Luck, not orders: the hero picked at random. ${hint}` : hint, checks: goalChecks(game), tally, commendations: medals };
   }
-  const missing = [];
-  const target = stampTarget(game);
-  if (game.stamps.length < target) missing.push(`${game.stamps.length} of ${plural(target, 'stamp')} earned`);
-  if (levelOf(game).champion && !game.champion) missing.push('champion undefeated');
-  if (!missing.length) missing.push('assignment never submitted at camp');
   const dead = game.hp === 0;
   return {
     tone: 'lost',
     stamp: dead ? 'Incident' : 'Overdue',
     title: dead ? 'A preventable workplace incident.' : 'The guild has closed for the day.',
-    text: dead ? `The hero ran out of health on turn ${game.turn}, at ${currentTile(game).name}. ${missing.join(', ')}.` : `All ${game.turnLimit} turns used: ${missing.join(', ')}.`,
+    // The checklist below says what was done and what was missing; the text names what ended the trial.
+    text: dead ? `The hero ran out of health on turn ${game.turn}, at ${currentTile(game).name}.` : `All ${game.turnLimit} turns used before the assignment was submitted.`,
+    checks: goalChecks(game),
     hint: random ? 'The hero ignored the orders and picked at random. Let the hero read your orders and see whether they do better.' : 'The hero did exactly what the orders said, and would like that noted. Change one instruction and run again.',
     tally,
     commendations: [],
@@ -277,7 +334,10 @@ export function verdictHtml(verdict) {
   const tally = verdict.tally.slice(0, 4).map(t => `<span class="chip quiet">${escapeHtml(t.label)} ×${t.count}</span>`).join('');
   const medals = verdict.commendations?.length
     ? `<p class="commendations"><span class="section-label">Commendations ${verdict.commendations.filter(m => m.earned).length} of ${verdict.commendations.length}</span>${verdict.commendations.map(m => `<span class="medal${m.earned ? ' earned' : ''}"><span aria-hidden="true">${m.earned ? '★' : '☆'}</span> ${escapeHtml(m.label)}<span class="sr-only">${m.earned ? ' (earned)' : ' (not earned)'}</span></span>`).join('')}</p>` : '';
-  return `<span class="rubber ${verdict.tone}" aria-hidden="true">${escapeHtml(verdict.stamp)}</span><div class="verdict-body"><h3>${escapeHtml(verdict.title)}</h3><p>${escapeHtml(verdict.text)}</p>${medals}<p class="chips">${tally}</p><p class="verdict-hint">${escapeHtml(verdict.hint)}</p></div>`;
+  const mark = { done: '✓', failed: '✗', open: '·' };
+  const said = { done: 'met', failed: 'not met', open: 'open' };
+  const checks = verdict.checks?.length ? `<ul class="checks" aria-label="Goal checklist">${verdict.checks.map(check => `<li class="check ${check.state}${isLimit(check) ? ' limit' : ''}${check.cause ? ' cause' : ''}"><span class="check-mark" aria-hidden="true">${mark[check.state]}</span><span class="check-label">${escapeHtml(check.label)}<span class="sr-only">: ${said[check.state]}.</span></span><span class="check-note">${escapeHtml(check.note)}${check.cause ? ' <b class="check-cause">Ended the trial</b>' : ''}</span></li>`).join('')}</ul>` : '';
+  return `<span class="rubber ${verdict.tone}" aria-hidden="true">${escapeHtml(verdict.stamp)}</span><div class="verdict-body"><h3>${escapeHtml(verdict.title)}</h3><p>${escapeHtml(verdict.text)}</p>${checks}${medals}<p class="chips">${tally}</p><p class="verdict-hint">${escapeHtml(verdict.hint)}</p></div>`;
 }
 
 /**
