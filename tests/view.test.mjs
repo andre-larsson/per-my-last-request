@@ -55,17 +55,17 @@ test('the goal checklist says, with evidence from the log, why a trial passed or
     'done: Keep HP above 0: Ended with 34 of 40 HP',
     'failed (cause): Stay within 12 turns: All 12 used before submitting',
   ]);
-  // Quick strikes at everything: two stamps, then health runs out at the optional prize fight.
+  // Quick strikes at everything, the prize fight taken: two stamps, then health runs out at the optional prize fight.
   let brawl = newGame('circuit');
-  while (availableActions(brawl).length) brawl = applyAction(brawl, brawl.enemy ? 'quick' : brawl.status === 'ready' ? 'depart' : 'advance');
+  while (availableActions(brawl).length) brawl = applyAction(brawl, brawl.enemy ? 'quick' : brawl.status === 'ready' ? 'depart' : availableActions(brawl).some(a => a.id === 'challenge') ? 'challenge' : 'advance');
   assert.deepEqual(goalChecks(brawl).map(row), [
     'done: Beat the practice rat: Beaten on turn 3',
     'done: Beat the Tin boar: Beaten on turn 10',
     'failed: Beat Quickfoot: Never reached',
     'failed: Beat the champion: Never reached',
     'failed: Submit at camp: Needed Quickfoot and the champion first',
-    'failed (cause): Keep HP above 0: Ran out on turn 13, at Prize bruiser',
-    'done: Stay within 32 turns: 13 of 32 used',
+    'failed (cause): Keep HP above 0: Ran out on turn 14, at Prize bruiser',
+    'done: Stay within 32 turns: 14 of 32 used',
   ]);
   // Dying in a required fight names it; so does running out of turns mid-fight.
   const boar = play(newGame('circuit'), 'depart', 'quick', 'quick', 'advance', 'advance');
@@ -294,7 +294,7 @@ test('rulebook: starting kit, potions, the LOW flag, medic, bench, purse and arm
 test('rulebook: prize money, the champion, and stronger opponents on later laps', () => {
   const rat = play(newGame('circuit'), 'depart', 'heavy');
   assert.equal(rat.coins, 2, 'a win pays 2 coins');
-  const bruiser = meet(5, { stamina: 3 });
+  const bruiser = play(meet(5, { stamina: 3 }), 'challenge');
   const pocketed = play({ ...bruiser, enemy: { ...bruiser.enemy, hp: 1 } }, 'quick');
   assert.equal(pocketed.coins, 6, 'the optional prize bruiser pays 6');
   const champion = meet(10);
@@ -304,6 +304,21 @@ test('rulebook: prize money, the champion, and stronger opponents on later laps'
   const secondLap = play({ ...newGame('circuit'), status: 'active', position: 11, turn: 5 }, 'advance', 'advance');
   assert.equal(secondLap.lap, 2);
   assert.deepEqual([secondLap.enemy.hp, nextMove(secondLap.enemy).damage], [13, 4], 'lap 2 adds 3 HP and 1 damage');
+});
+test('rulebook: in 04 the prize bruiser waits for a challenger; in 03 it steps out, and leaving it is a retreat', () => {
+  const waiting = meet(5, { hp: 30 });
+  assert.equal(waiting.enemy, null);
+  assert.deepEqual(availableActions(waiting).map(a => a.id), ['potion', 'challenge', 'advance']);
+  const taken = play(waiting, 'challenge');
+  assert.deepEqual([taken.turn - waiting.turn, taken.hp, taken.enemy.name], [1, 30, 'Prize bruiser'], 'taking the fight takes a turn');
+  assert.ok(availableActions(taken).some(a => a.id === 'retreat'), 'once in it, leaving is a retreat');
+  const walked = play(waiting, 'advance');
+  assert.deepEqual([walked.hp, TILES[walked.position].name], [30, 'Field medic'], 'walking on skips it');
+  let prize = play(newGame('prize'), 'depart', 'advance');
+  assert.equal(prize.enemy.name, 'Prize bruiser', 'in 03 it steps out');
+  assert.ok(availableActions(prize).some(a => a.id === 'retreat'));
+  assert.equal(sceneFor(waiting).kicker, 'Optional prize fight');
+  assert.match(sceneFor(waiting).text, /waits for a challenger/);
 });
 test('rulebook: in 02 and 03 the order of moves is new every trial, each move once per round; the champion never changes', () => {
   const movesOf = (level, seed, name) => {
@@ -332,7 +347,7 @@ test('rulebook: in 02 and 03 the order of moves is new every trial, each move on
 test('rulebook: reading the opponent in the full circuit', () => {
   // Every circuit opponent announces its move before the hero acts, and repeats its routine.
   for (const index of [1, 3, 5, 7, 10]) {
-    const s = meet(index);
+    const s = index === 5 ? play(meet(5), 'challenge') : meet(index);
     assert.ok(observation(s).enemy.nextMove, TILES[index].name);
     assert.ok(availableActions(s).some(a => a.id === 'guard'), 'guard is offered in circuit fights');
   }

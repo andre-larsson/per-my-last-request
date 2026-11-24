@@ -14,8 +14,10 @@ export const PRICES = { sword: 8, buckler: 8, potion: 6 };
 export const PRESETS = {
   reckless: 'Fight every opponent. Use heavy strikes. Drink a potion whenever any health is missing. Buy whatever the armorer sells. Keep going until the champion is defeated, then return to camp.',
   // A numbered list since 2026-11-24: as one sentence with three exceptions, the 3B struck the boar's SMASH instead of
-  // guarding it (GAME_NOTES, "Example orders, the prize fight, and what sways the 3B").
-  careful: '1. If this is the optional prize fight: retreat.\n2. If health is LOW: drink a potion.\n3. If the enemy is about to SMASH: guard.\n4. In every other fight turn: quick strike.',
+  // guarding it. "Skip", because the prize bruiser waits to be challenged here: with "If this is the optional prize
+  // fight: retreat." the 3B took the fight and lost 4 trials of 4; with "Skip …" it walked on and won 4 of 4 (GAME_NOTES,
+  // "Example orders, the prize fight, and what sways the 3B").
+  careful: '1. Skip the optional prize fight.\n2. If health is LOW: drink a potion.\n3. If the enemy is about to SMASH: guard.\n4. In every other fight turn: quick strike.',
 };
 export const TUTORIAL_PRESETS = {
   reckless: 'Always retreat from every enemy. Leave every fight immediately. Never attack.',
@@ -73,7 +75,7 @@ export const LEVELS = {
     objective: s => `Earn the rat, boar, and Quickfoot stamps, return to camp, and submit the assignment before ${s.turnLimit} turns.` },
   prize: { title: 'Prize money', course: [0, 4, 5, 6, 7, 8, 9, 10, 11], turnLimit: 30, stamps: ['quickfoot'], champion: true, announced: true, drawn: true, presets: PRIZE_PRESETS,
     objective: s => `Earn the Quickfoot stamp, defeat the champion, return to camp, and submit the assignment before ${s.turnLimit} turns.` },
-  circuit: { title: 'The full circuit', course: TILES.map((tile, i) => i), turnLimit: MAX_TURNS, stamps: ['rat', 'boar', 'quickfoot'], champion: true, announced: true, commendations: true, presets: PRESETS,
+  circuit: { title: 'The full circuit', course: TILES.map((tile, i) => i), turnLimit: MAX_TURNS, stamps: ['rat', 'boar', 'quickfoot'], champion: true, announced: true, commendations: true, challenge: true, presets: PRESETS,
     objective: s => `Earn the rat, boar, and Quickfoot stamps, defeat the champion, return to camp, and submit the assignment before ${s.turnLimit} turns.` },
 };
 export const LEVEL_ORDER = Object.keys(LEVELS);
@@ -170,9 +172,9 @@ export function availableActions(s) {
       if (s.coins >= PRICES.potion) add('buy_potion', 'Buy a potion', { type: 'buy', item: 'potion' }, `Spend ${PRICES.potion} of ${s.coins} coins for one more potion (you carry ${s.potions}). Takes one turn.`);
     }
     if (tile.kind === 'bench' && !s.benchUsed && (s.stamina < 4 || s.hp < s.maxHp)) add('rest', 'Catch your breath', { type: 'rest' }, `Restore stamina to 4 and up to ${BENCH_HP} HP. Once per lap. Takes one turn.`);
-    if (offered(s)) add('challenge', 'Take the prize fight', { type: 'challenge' }, `${tile.name} fights you for ${tile.prize} coins. Takes one turn.`);
+    if (prizeOffered(s)) add('challenge', 'Take the prize fight', { type: 'challenge' }, `${tile.name} fights you for ${tile.prize} coins. Takes one turn.`);
     if (tile.kind === 'camp' && assignmentReady(s)) add('finish', 'Submit the assignment', { type: 'finish' });
-    else add('advance', tile.kind === 'camp' ? 'Try another lap' : 'Continue along the circuit', { type: 'advance' }, `Walk to the next stop${offered(s) ? ' and skip the optional prize fight' : ''}. Recover 1 stamina. Takes one turn.`);
+    else add('advance', tile.kind === 'camp' ? 'Try another lap' : 'Continue along the circuit', { type: 'advance' }, `Walk to the next stop${prizeOffered(s) ? ' and skip the optional prize fight' : ''}. Recover 1 stamina. Takes one turn.`);
   }
   return actions;
 }
@@ -190,8 +192,11 @@ function shuffle(list, rng) {
 function enterTile(s, say) {
   const tile = currentTile(s);
   s.resolved = false;
-  // With `challenge` (an experiment, off in every assignment): the optional prize fighter waits for the hero to take
-  // its fight or walk on, instead of stepping out at once.
+  // With `challenge` (the full circuit, since 2026-11-24): the optional prize fighter waits for the hero to take its
+  // fight or walk on, instead of stepping out at once. Both models fought the prize fight their orders said to leave;
+  // offered before the fight, the 3B walked past it and won the circuit about three times as often (GAME_NOTES,
+  // "Example orders, the prize fight, and what sways the 3B"). Prize money keeps the fight stepping out: there, walking
+  // past would let its first draft win without a potion.
   if (tile.kind === 'enemy' && tile.optional && levelOf(s).challenge) {
     say('world', 'offer', `${tile.name} offers a prize fight for ${tile.prize} coins.`, { position: s.position });
   } else if (tile.kind === 'enemy' && !(tile.boss && s.champion)) spawn(s, tile, say);
@@ -216,7 +221,7 @@ function spawn(s, tile, say) {
   say('world', 'enter', `${tile.name} steps onto the course.`, { position: s.position });
 }
 /** At a stop whose optional prize fighter waits (`challenge`), until the hero takes the fight, walks on or leaves it. */
-const offered = s => !s.enemy && !s.resolved && currentTile(s).optional && !!levelOf(s).challenge;
+export const prizeOffered = s => !s.enemy && !s.resolved && currentTile(s).optional && !!levelOf(s).challenge;
 
 function defeat(s, say) {
   const e = s.enemy;
@@ -353,7 +358,7 @@ export function observation(s) {
     hero: { hp: s.hp, maxHp: s.maxHp, healthStatus: s.hp <= LOW_HP ? 'LOW' : 'OK', stamina: s.stamina, potions: s.potions, coins: s.coins, swordBonus: s.sword, ...(announced(s) ? { guardBlock: guardBlock(s) } : {}) },
     location: currentTile(s).name,
     enemy,
-    ...(offered(s) ? { offer: { name: currentTile(s).name, prize: currentTile(s).prize } } : {}),
+    ...(prizeOffered(s) ? { offer: { name: currentTile(s).name, prize: currentTile(s).prize } } : {}),
     ...(announced(s) ? { announcedMoves: true } : {}),
     progress: { stamps: s.stamps, targetStamps: levelOf(s).stamps.length, requiresChampion: levelOf(s).champion, championDefeated: s.champion, turn: s.turn, turnLimit: s.turnLimit, lap: s.lap },
     rules: 'Quick attacks restore 1 stamina. Heavy attacks cost 2 stamina. Healing restores up to 18 HP and consumes a turn. An active enemy retaliates after healing or a nonlethal attack. The field medic heals 12 HP once. Walking restores 1 stamina. Retreat loses 2 HP and forfeits that enemy reward. Agile enemies evade heavy strikes. Model thinking does not consume game turns.',

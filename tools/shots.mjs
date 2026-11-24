@@ -60,6 +60,7 @@ const STATES = {
   // Mid-turn: the guard is up and the charge has just landed; the counter is still to come.
   'circuit-playback': async () => { await page.eval(`QuestDemo.setPace('normal'); QuestDemo.hold(2)`); await act(['guard']); await page.waitFor('QuestDemo.snapshot().beat === 2'); },
   'circuit-countered': async () => { await page.eval(`QuestDemo.hold(null); QuestDemo.setPace('instant')`); await page.waitFor('!QuestDemo.snapshot().playing'); },
+  'circuit-offer': async () => { await reader("s.position === 5 && !s.enemy && !s.resolved"); },
   'circuit-armorer': async () => { await reader("s.position === 8 && !s.enemy"); },
   'circuit-champion': async () => { await reader("s.enemy && s.enemy.boss && s.enemy.step === 2"); },
   'circuit-win': async () => { await reader('false'); },

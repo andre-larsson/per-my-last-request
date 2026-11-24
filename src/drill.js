@@ -2,8 +2,8 @@
 // player's orders before a trial, so the player sees how the orders were understood.
 //
 // The situations are real engine states, reached by walking the assignment's course with a fixed route (fight with
-// quick strikes, guard a SMASH, drink at LOW, take the prize fight, pass every other stop). The route only finds the
-// states; it never plays the hero. The hero's answers come from the model, asked exactly as in a trial.
+// quick strikes, guard a SMASH, drink at LOW, take the prize fight where it steps out, walk past it where it waits to be
+// challenged, pass every other stop). The route only finds the states; it never plays the hero. The hero's answers come from the model, asked exactly as in a trial.
 import { newGame, availableActions, applyAction, currentTile, nextMove, LOW_HP, LEVELS } from './game.js';
 
 const ids = s => availableActions(s).map(a => a.id);
@@ -31,7 +31,8 @@ const KINDS = [
   { id: 'brace', find: s => fightOf(s) === 'brace', adjust: notLow, ask: s => `${s.enemy.name} is BRACING.` },
   { id: 'winded', find: s => fightOf(s) === 'winded', adjust: notLow, ask: s => `${s.enemy.name} is WINDED.` },
   { id: 'low', find: s => fightOf(s) === 'strike', adjust: s => ({ ...s, hp: Math.min(s.hp, LOW_HP - 3) }), ask: () => 'Your health is LOW in a fight.' },
-  { id: 'prize', find: s => s.enemy?.optional, adjust: notLow, ask: s => `The optional prize fight: the ${s.enemy.name.toLowerCase()}.` },
+  // In the full circuit the prize fighter waits to be challenged (`challenge`): the decision is taken before the fight.
+  { id: 'prize', find: s => s.enemy?.optional || ids(s).includes('challenge'), adjust: notLow, ask: s => `The optional prize fight: the ${(s.enemy?.name ?? currentTile(s).name).toLowerCase()}.` },
   { id: 'medic', find: s => !s.enemy && currentTile(s).kind === 'medic', adjust: s => ({ ...s, hp: HURT }), ask: () => 'At the field medic, hurt.' },
   { id: 'shop', find: s => ids(s).some(id => id.startsWith('buy_')), ask: s => `At the armorer, with ${s.coins} coins.` },
   { id: 'bench', find: s => ids(s).includes('rest'), ask: () => 'At the bench, tired.' },
@@ -47,6 +48,7 @@ export function kindOf(s) {
   const offered = ids(s);
   if (offered.length < 2) return null;
   if (s.enemy) return s.enemy.optional ? 'prize' : s.hp <= LOW_HP ? 'low' : nextMove(s.enemy).kind;
+  if (offered.includes('challenge')) return 'prize';
   if (offered.includes('finish')) return 'camp';
   if (offered.includes('medic')) return 'medic';
   if (offered.some(id => id.startsWith('buy_'))) return 'shop';

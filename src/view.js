@@ -1,6 +1,6 @@
 // Pure presentation helpers. They read game state and return plain data or HTML strings.
 // Rules and outcomes stay in game.js; nothing here changes a game.
-import { TILES, LEVELS, levelOf, nextLevel, currentTile, assignmentReady, nextMove, guardBlock, counterDamage, commendations, PRICES, SWORD_BONUS, BUCKLER_BLOCK, BENCH_HP, MEDIC_HP, LOW_HP } from './game.js';
+import { TILES, LEVELS, levelOf, nextLevel, currentTile, assignmentReady, prizeOffered, nextMove, guardBlock, counterDamage, commendations, PRICES, SWORD_BONUS, BUCKLER_BLOCK, BENCH_HP, MEDIC_HP, LOW_HP } from './game.js';
 
 export const escapeHtml = value => String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -131,6 +131,10 @@ export function sceneFor(game) {
         : 'Defeat it to earn a required stamp. Retreating costs 2 HP and earns nothing.',
     };
   }
+  if (prizeOffered(game)) {
+    return { ...base, kicker: 'Optional prize fight', traits: [{ label: `Pays ${tile.prize} coins`, note: 'if the hero takes the fight and wins' }],
+      text: `Not required. ${tile.name} waits for a challenger. Taking the fight takes a turn; walking on skips it at no cost.` };
+  }
   if (game.resolved && tile.kind === 'enemy') {
     const left = game.log.at(-1)?.action === 'retreat';
     return { ...base, kicker: 'Fight over', mark: left ? 'Left behind' : 'Defeated', text: left ? `The hero walked away from ${tile.name}. No reward was earned here.` : `${tile.name} is beaten. The path onward is clear.` };
@@ -194,16 +198,17 @@ export const PACE_ORDER = ['step', 'normal', 'fast'];
 export const BEAT_MS = { consider: 1400, choice: 1100, own: 600, event: 750, perWord: 45, big: 1300 };
 
 // The events after which the stage shows the new situation (a new stop, a beaten or abandoned opponent, an ended trial).
-const SCENE_CHANGES = new Set(['enter', 'coins', 'camp', 'defeat', 'retreat', 'lost', 'timeout', 'finish']);
+const SCENE_CHANGES = new Set(['enter', 'offer', 'coins', 'camp', 'defeat', 'retreat', 'lost', 'timeout', 'finish']);
 const BIG_MOMENTS = new Set(['defeat', 'stamp', 'champion', 'lost', 'timeout', 'finish']);
 const WALKS = new Set(['advance', 'depart']);
 // What the hero says while a turn plays out. Short, so it fits a speech bubble on the portrait.
-const SHOUTS = { quick: 'Quick strike!', heavy: 'Heavy strike!', guard: 'Guard!', potion: 'Potion.', retreat: 'Retreat!', advance: 'Onward.', depart: 'Onward.', medic: 'Medic!', buy_sword: 'Sword, please.', buy_buckler: 'Buckler, please.', buy_potion: 'Potion, please.', rest: 'Sitting down.', finish: 'Done. Pay me.' };
+const SHOUTS = { quick: 'Quick strike!', heavy: 'Heavy strike!', guard: 'Guard!', potion: 'Potion.', retreat: 'Retreat!', challenge: 'You and me, then.', advance: 'Onward.', depart: 'Onward.', medic: 'Medic!', buy_sword: 'Sword, please.', buy_buckler: 'Buckler, please.', buy_potion: 'Potion, please.', rest: 'Sitting down.', finish: 'Done. Pay me.' };
 export const shoutFor = action => SHOUTS[action] || 'Right.';
 
 function soundsFor(event) {
   switch (event.kind) {
     case 'strike': return [event.style === 'heavy' ? 'heavy' : 'strike'];
+    case 'offer': return ['enter'];
     case 'foe-hit': return ['hurt'];
     case 'foe-blocked': return ['block'];
     case 'foe-idle': return ['idle'];
@@ -244,12 +249,12 @@ export function turnBeats(before, entry) {
   let foeArt = before.enemy ? TILE_ART[before.position] : null;
   for (const event of entry.events || []) {
     const words = event.text.split(/\s+/).length;
-    if (event.kind === 'enter') foeArt = TILE_ART[event.position];
+    if (event.kind === 'enter' || event.kind === 'offer') foeArt = TILE_ART[event.position];
     beats.push({
       kind: event.kind, actor: event.actor, text: event.text, sounds: soundsFor(event),
       ms: BIG_MOMENTS.has(event.kind) ? BEAT_MS.big : BEAT_MS.event + BEAT_MS.perWord * words,
       scene: SCENE_CHANGES.has(event.kind), at: event.at, fx: effects(prev, event.at, event.kind),
-      art: event.actor === 'hero' ? 'hero' : event.actor === 'foe' || event.kind === 'enter' || event.kind === 'defeat' ? foeArt : null,
+      art: event.actor === 'hero' ? 'hero' : event.actor === 'foe' || event.kind === 'enter' || event.kind === 'offer' || event.kind === 'defeat' ? foeArt : null,
     });
     prev = event.at;
   }

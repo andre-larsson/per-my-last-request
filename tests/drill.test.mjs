@@ -27,7 +27,9 @@ test('the drill asks each kind of decision once, with LOW health only where it s
     if (['strike', 'smash', 'brace', 'winded'].includes(item.id)) assert.equal(nextMove(s.enemy).kind, item.id);
   }
   const ids = id => availableActions(circuit.find(item => item.id === id).state).map(a => a.id);
-  assert.ok(ids('prize').includes('retreat'));
+  // In the full circuit the prize fighter waits: the drill asks before the fight, take it or walk on.
+  assert.deepEqual(ids('prize'), ['potion', 'challenge', 'advance']);
+  assert.ok(availableActions(drillFor('prize').find(item => item.id === 'prize').state).some(a => a.id === 'retreat'), 'in Prize money it steps out');
   assert.ok(ids('medic').includes('medic') && ids('medic').includes('potion'), 'The medic and a potion are both on offer');
   assert.ok(['buy_sword', 'buy_buckler', 'buy_potion'].every(id => ids('shop').includes(id)), 'The armorer offers all three');
   assert.ok(ids('camp').includes('finish') && ids('camp').includes('potion'), 'At camp, submitting competes with a potion');

@@ -28,8 +28,10 @@ const arg = name => process.argv.find(a => a.startsWith(`--${name}=`))?.slice(na
 // --set=fresh: the same nine plans worded by a second author (tools/ideas/orders-fresh.mjs), kept apart from tuning.
 const SET = arg('set') || 'dev';
 // --challenge: the optional prize fighter waits at its stop for the hero to take the fight or walk on (`challenge` in
-// src/game.js, off in the game). An experiment of 2026-11-24.
+// src/game.js), in Prize money as well as the full circuit, where the game has it since 2026-11-24.
+// --no-challenge: the full circuit as before that, when the bruiser stepped out; the records made before it need this.
 if (process.argv.includes('--challenge')) for (const level of ['prize', 'circuit']) G.LEVELS[level].challenge = true;
+if (process.argv.includes('--no-challenge')) G.LEVELS.circuit.challenge = false;
 const FILE = join(ROOT, 'artifacts', `ideas-rehearse-${MODEL}${SET === 'dev' ? '' : `-${SET}`}${arg('tag') ? `-${arg('tag')}` : ''}.json`);
 
 // ---------- plans and their wordings ----------

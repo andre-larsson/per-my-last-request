@@ -2,6 +2,20 @@
 
 Original prototype checks on 2026-11-13, with model-selection checks added on 2026-11-14. This file distinguishes game-rule checks, browser UI checks, and genuine model inference.
 
+## The prize bruiser waits to be challenged in the full circuit (2026-11-24, evening)
+
+- `npm test` passed (71 tests). New or changed: the rulebook line "In 04 the prize bruiser waits for a challenger: taking its fight takes a turn, walking on skips it. In 03 it steps out, and leaving it is a retreat." with its test in `tests/view.test.mjs`. The offer is on in the circuit only; taking the fight costs a turn and no hit; walking on costs no health; leaving the fight ends the offer; the prompt and checklist at the offer; the stage card. Updated: the read-back asks about the prize fight at the offer in the circuit (its options are potion, challenge, advance) and in the fight in Prize money; scripts that take every fight now challenge.
+- `rehearse.mjs --no-challenge` reproduces the dev `focus` record's 840 prompts, made before the offer.
+- `npm run test:browser` passed (the manual circuit victory now takes 31 turns; the scripted walk passes the bruiser).
+- `node tools/shots.mjs` (new state `circuit-offer`): no rendered text under 12 px, no overflow. Checked by eye at 1440 and 390 px: the stage card shows "Optional prize fight", "Pays 6 coins" and "waits for a challenger", with Drink potion, Take the prize fight, and Continue along the circuit ("… and skip the optional prize fight") offered.
+- **Real inference through the game's interface, Qwen 2.5 3B** (`QUEST_PROFILE=artifacts/llm-test-profile npm run test:llm -- --full --levels --circuit`, RTX 4090, normal pace, fixed routines; log `artifacts/tune-logs/ui-offer-3b.txt`):
+  - The tutorial passed.
+  - Fair warning: careful orders won on turn 15; the first draft died on turn 11.
+  - Prize money (unchanged): careful orders won on turn 23; the first draft died at the champion on turn 18.
+  - **Full circuit, the example orders ("1. Skip the optional prize fight. …"): won on turn 29 with 16 HP.** It walked past the prize bruiser, guarded 3 of 3 smashes and 0 of 7 ordinary hits, and drank at LOW in 1 of 3 decisions at LOW. That took 24 model decisions and 5 single-option moves, with no manual or scripted choices; all decisions were prepared ahead, visible wait 0 ms. **The first circuit win by the 3B through the interface with the current prompt**, one greedy run.
+- **Real inference through the game's interface, Qwen 3 8B** (`--circuit`; log `ui-offer-8b.txt`): **the full circuit won on turn 28 with 20 HP**. It walked past the bruiser, guarded 4 of 4 smashes and 0 of 6 ordinary hits, and drank at LOW in 2 of 3. That took 22 model decisions and 6 single-option moves; 21 of 22 decisions prepared ahead, visible wait 0 ms. One run.
+- Before the push, the experiment with the 3B (`rehearse.mjs --challenge --level=circuit --plan=careful --play`, the game as it is plus 3 experiment draws; log `offer-example-3b.txt`): "1. If this is the optional prize fight: retreat. …" took the fight and lost 4 of 4; "1. Skip the optional prize fight. …" won 4 of 4; "1. Walk past the optional prize fight. …" won 4 of 4.
+
 ## The circuit's example orders as a numbered list, and Prize money's first draft buys nothing (2026-11-24)
 
 - `npm test` passed (70 tests). Changed: Prize money's first draft is Fair warning's careful orders plus "Buy nothing.", and the same script with the sharper sword would win. New: the prize fighter's offer (`challenge`), off in every assignment; switched on in the test, the bruiser waits, taking the fight costs one turn and no hit, walking on costs no health, and leaving the fight ends the offer. With it off, 29,973 states of random play in all four assignments, with fixed and drawn moves, give the same states, actions, observations and prompts as the engine before it.

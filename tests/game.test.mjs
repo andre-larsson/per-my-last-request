@@ -4,8 +4,9 @@ import { newGame, applyAction, availableActions, observation, nextMove, strikeDa
 import { actionSchema, parseDecision, decisionMessages, normalizeDecisionOutput, APPLYING_ORDERS } from '../src/protocol.js';
 
 // Scripted stand-ins for example orders. Test code only; never used as a controller in the game.
-// The full circuit's example orders: "1. If this is the optional prize fight: retreat. 2. If health is LOW: drink a potion.
-//  3. If the enemy is about to SMASH: guard. 4. In every other fight turn: quick strike."
+// The full circuit's example orders: "1. Skip the optional prize fight. 2. If health is LOW: drink a potion.
+//  3. If the enemy is about to SMASH: guard. 4. In every other fight turn: quick strike." (The bruiser waits there:
+//  `parry` walks on, and would retreat if it ever found itself in that fight.)
 function parry(s) {
   const ids = availableActions(s).map(a => a.id);
   const has = id => ids.includes(id);
@@ -35,7 +36,7 @@ function reckless(s) {
   const has = id => ids.includes(id);
   if (has('potion')) return 'potion';
   if (s.enemy) return has('heavy') ? 'heavy' : 'quick';
-  for (const id of ['medic', 'buy_sword', 'buy_buckler', 'buy_potion', 'rest', 'finish', 'depart']) if (has(id)) return id;
+  for (const id of ['challenge', 'medic', 'buy_sword', 'buy_buckler', 'buy_potion', 'rest', 'finish', 'depart']) if (has(id)) return id;
   return 'advance';
 }
 // Stand-ins for the middle assignments' example orders.
@@ -151,24 +152,22 @@ test('wasting healing and taking every fight loses on the same course', () => {
   assert.equal(s.hp, 0);
   assert.equal(s.potions, 0);
 });
-test('the prize fighter\'s offer (an experiment, off in every assignment): take the fight or walk on', () => {
-  assert.deepEqual(LEVEL_ORDER.map(level => Boolean(LEVELS[level].challenge)), [false, false, false, false]);
-  LEVELS.circuit.challenge = true;
-  try {
-    const at = meet(5, { hp: 30 });
-    assert.equal(at.enemy, null, 'the bruiser waits');
-    assert.deepEqual(availableActions(at).map(a => a.id), ['potion', 'challenge', 'advance']);
-    assert.match(availableActions(at).find(a => a.id === 'advance').detail, /skip the optional prize fight/);
-    assert.deepEqual(observation(at).offer, { name: 'Prize bruiser', prize: 6 });
-    const prompt = decisionMessages('orders', observation(at), availableActions(at))[1].content;
-    assert.match(prompt, /You are not currently in a fight\. Prize bruiser offers an optional prize fight: 6 coins if you win\./);
-    assert.match(prompt, /- Optional prize fight: yes/);
-    const taken = play(at, 'challenge');
-    assert.deepEqual([taken.turn - at.turn, taken.hp, taken.enemy.name, nextMove(taken.enemy).kind], [1, 30, 'Prize bruiser', 'strike'], 'one turn, no hit, then the fight');
-    const walked = play(at, 'advance');
-    assert.deepEqual([walked.hp, walked.position, walked.prizeWon], [30, 6, false], 'walking on costs no health');
-    assert.equal(availableActions(play(taken, 'retreat')).some(a => a.id === 'challenge'), false, 'no second offer after leaving');
-  } finally { delete LEVELS.circuit.challenge; }
+test('the prize fighter\'s offer, in the full circuit only: the bruiser waits, the hero takes the fight or walks on', () => {
+  assert.deepEqual(LEVEL_ORDER.map(level => Boolean(LEVELS[level].challenge)), [false, false, false, true]);
+  const at = meet(5, { hp: 30 });
+  assert.equal(at.enemy, null, 'the bruiser waits');
+  assert.match(availableActions(at).find(a => a.id === 'advance').detail, /skip the optional prize fight/);
+  assert.deepEqual(observation(at).offer, { name: 'Prize bruiser', prize: 6 });
+  const prompt = decisionMessages('orders', observation(at), availableActions(at))[1].content;
+  assert.match(prompt, /You are not currently in a fight\. Prize bruiser offers an optional prize fight: 6 coins if you win\./);
+  assert.match(prompt, /- Optional prize fight: yes/);
+  const taken = play(at, 'challenge');
+  assert.deepEqual([taken.turn - at.turn, taken.hp, taken.enemy.name, nextMove(taken.enemy).kind], [1, 30, 'Prize bruiser', 'strike'], 'one turn, no hit, then the fight');
+  const walked = play(at, 'advance');
+  assert.deepEqual([walked.hp, walked.position, walked.prizeWon], [30, 6, false], 'walking on costs no health');
+  assert.equal(availableActions(play(taken, 'retreat')).some(a => a.id === 'challenge'), false, 'no second offer after leaving');
+  // Prize money keeps the fight stepping out: walking past would let its first draft win without a potion.
+  assert.equal(play(newGame('prize'), 'depart', 'advance').enemy.name, 'Prize bruiser');
 });
 test('illegal commands cannot grant rewards or spend a turn', () => {
   const s = newGame();

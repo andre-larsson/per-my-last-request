@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { serve, ROOT } from './serve.mjs';
 import { launch, sleep } from './chrome.mjs';
 import { findModel } from '../src/models.js';
-import { newGame, applyAction, nextMove } from '../src/game.js';
+import { newGame, applyAction, nextMove, prizeOffered } from '../src/game.js';
 import { BEAT_MS } from '../src/view.js';
 
 const llm = process.argv.includes('--llm');
@@ -737,7 +737,7 @@ try {
       const decisions=[];
       for(const entry of snapshot.game.log){
         const move=replay.enemy?nextMove(replay.enemy):null;
-        if(entry.source==='llm')decisions.push({turn:entry.turn,at:entry.at,move:move?.kind||null,hp:replay.hp,action:entry.action});
+        if(entry.source==='llm')decisions.push({turn:entry.turn,at:entry.at,move:move?.kind||null,hp:replay.hp,action:entry.action,offer:prizeOffered(replay)});
         replay=applyAction(replay,entry.action,entry.source);
       }
       const count=(filter,action)=>`${decisions.filter(d=>filter(d)&&(!action||action(d))).length}`;
@@ -746,6 +746,8 @@ try {
         guardedOrdinaryHits:`${count(d=>d.move==='strike',d=>d.action==='guard')} of ${count(d=>d.move==='strike')}`,
         potionsAtLow:`${count(d=>d.hp<=18,d=>d.action==='potion')} of ${count(d=>d.hp<=18)}`,
         optionalRetreated:`${count(d=>d.at==='Prize bruiser',d=>d.action==='retreat')} of ${count(d=>d.at==='Prize bruiser')}`,
+        // In the full circuit the bruiser waits: walking on (advance) or taking the fight (challenge) is decided first.
+        optionalWalkedPast:`${count(d=>d.offer,d=>d.action==='advance')} of ${count(d=>d.offer)}`,
         llmDecisions:decisions.length, autoMoves:snapshot.game.log.filter(e=>e.source==='auto').length, manual:snapshot.game.log.filter(e=>e.source==='manual').length,
         playback:{pace:snapshot.pace,seconds:Math.round((Date.now()-trialStart)/1000),timed:Object.keys(timings).length,preparedAhead:Object.values(timings).filter(t=>t.preparedAhead).length,visibleWaitMs:Object.values(timings).reduce((sum,t)=>sum+(t.waitedMs||0),0),modelMs:Object.values(timings).reduce((sum,t)=>sum+t.modelMs,0)}};
       const record={level,preset,summary,decisions,timings,orders:snapshot.orders,status:snapshot.status,model:loadedSelection,temperature:snapshot.runTemperature};
