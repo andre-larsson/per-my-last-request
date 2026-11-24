@@ -160,7 +160,7 @@ const YES_NO = ['yes', 'no'];
 const NEUTRAL = Boolean(process.env.IDEAS_NEUTRAL);
 const yn = value => value ? 'yes' : 'no';
 const withChecklist = (built, lines) => ({ ...built, facts: `${built.facts}\nCHECKLIST\n${lines.map(line => `- ${line}`).join('\n')}` });
-const NOTICE_TOPIC = {
+export const NOTICE_TOPIC = {
   bench: { forbid: 'Does the notice tell applicants NOT to use the bench (the seat) today?', mandate: 'Does the notice order applicants to stop and rest on the bench (the seat) today?', forbids: 'resting on the bench', requires: 'resting on the bench' },
   medic: { forbid: 'Does the notice tell applicants NOT to visit the medic today?', mandate: 'Does the notice order applicants to be seen by the medic today?', forbids: 'visiting the medic', requires: 'visiting the medic' },
   bruiser: { forbid: 'Does the notice tell applicants NOT to fight the prize bruiser today?', mandate: 'Does the notice order applicants to fight the prize bruiser today?', forbids: 'fighting the prize bruiser', requires: 'fighting the prize bruiser' },

@@ -26,7 +26,7 @@
       <h2 id="help-title">The rulebook</h2>
       <button id="help-close" class="ghost" aria-label="Close the rulebook">Close ✕</button>
     </div>
-    <p class="help-lede"><strong>You write the orders. The hero makes the decisions.</strong> Each turn the hero picks one of the offered actions, guided only by your standing orders. Change the orders, run again, compare.</p>
+    <p class="help-lede"><strong>You write the orders. The hero makes the decisions.</strong> Each turn the hero picks one of the offered actions, guided only by your standing orders. Change the orders, run again, compare. Before a trial, the hero can read your orders back: what it would do in a few situations from the assignment.</p>
     <div class="help-grid">
       <section>
         <h3>Assignments</h3>
@@ -53,6 +53,7 @@
         <h3>Reading the opponent <small>from 02</small></h3>
         <ul>
           <li>Every opponent repeats a routine and <strong>announces its move</strong> before the hero acts.</li>
+          <li>In 02 and 03 the order of an opponent’s moves is <strong>new every trial</strong>: each move still comes once per round. The champion’s never changes.</li>
           <li><strong>Strike:</strong> an ordinary hit. <strong>Smash:</strong> a big hit.</li>
           <li><strong>Bracing:</strong> no hit this turn, and strikes deal half. <strong>Winded:</strong> no hit, and an agile enemy cannot dodge.</li>
           <li><strong>Guard:</strong> deal nothing, block up to 8 damage, restore 1 stamina.</li>
@@ -190,6 +191,11 @@
         <div class="letter-signoff"><span>Regards,<br><strong>Guild management</strong></span><span id="orders-size" class="orders-size"></span></div>
         <p id="orders-notice" class="notice" hidden>Orders changed. The next run restarts the trial with the new text.</p>
         <p id="orders-off" class="notice" hidden>The Random hero does not read orders, so they are locked. To edit them, choose Local LLM under Who plays the hero.</p>
+        <div id="readback-box" class="readback">
+          <button id="readback-ask" class="secondary" type="button" disabled>Ask the hero to read them back</button>
+          <p id="readback-hint" class="readback-hint"></p>
+          <div id="readback" aria-live="polite"></div>
+        </div>
         <div class="presets">
           <span class="section-label">Example orders</span>
           <div><button data-preset="reckless">An unfortunate first draft</button><button data-preset="careful">A little more specific</button></div>

@@ -39,36 +39,39 @@ export const ORDERS = {
   ...Object.fromEntries((process.env.PROBE_ORDERS || '').split(' || ').filter(Boolean).map((orders, i) => [`variant ${i + 1}`, orders.replace(/\\n/g, '\n')])),
 };
 
-const server = await serve(4174);
-const page = await launch({ hardwareGpu: true, profileDir: join(ROOT, 'artifacts', 'llm-test-profile') });
-try {
-  await page.goto('http://127.0.0.1:4174/');
-  await page.eval(`(() => {
-    window.__probe = new Worker('./src/llm-worker.js', { type: 'module' });
-    window.__call = (type, payload) => new Promise((resolve, reject) => {
-      const id = Math.random();
-      const listen = ({ data }) => {
-        if (data.id !== id || data.type === 'progress') return;
-        window.__probe.removeEventListener('message', listen);
-        data.type === 'error' ? reject(new Error(data.error)) : resolve(data.result);
-      };
-      window.__probe.addEventListener('message', listen);
-      window.__probe.postMessage({ id, type, payload });
-    });
-  })()`);
-  const started = Date.now();
-  await page.eval(`__call('load', { model: ${JSON.stringify(MODEL)} })`);
-  console.log(`Loaded ${MODEL} in ${((Date.now() - started) / 1000).toFixed(0)} s, temperature ${TEMPERATURE}\n`);
-  for (const [name, orders] of Object.entries(ORDERS)) {
-    let right = 0;
-    console.log(`ORDERS (${name}): ${orders}`);
-    for (const [label, state, wanted] of SITUATIONS) {
-      const actions = availableActions(state).map(({ id, label, detail }) => ({ id, label, detail }));
-      const result = await page.eval(`__call('decide', ${JSON.stringify({ orders, observation: observation(state), actions, temperature: TEMPERATURE })})`);
-      const chosen = JSON.parse(result.raw).action;
-      if (chosen === wanted) right++;
-      console.log(`  ${chosen === wanted ? '✓' : '✗'} ${label.padEnd(30)} chose ${chosen.padEnd(8)} wanted ${wanted}`);
+// Run directly, it asks the model. Imported (tools/ideas/rehearse.mjs), it only lends its situations.
+if (process.argv[1]?.endsWith('tools/probe.mjs')) {
+  const server = await serve(4174);
+  const page = await launch({ hardwareGpu: true, profileDir: join(ROOT, 'artifacts', 'llm-test-profile') });
+  try {
+    await page.goto('http://127.0.0.1:4174/');
+    await page.eval(`(() => {
+      window.__probe = new Worker('./src/llm-worker.js', { type: 'module' });
+      window.__call = (type, payload) => new Promise((resolve, reject) => {
+        const id = Math.random();
+        const listen = ({ data }) => {
+          if (data.id !== id || data.type === 'progress') return;
+          window.__probe.removeEventListener('message', listen);
+          data.type === 'error' ? reject(new Error(data.error)) : resolve(data.result);
+        };
+        window.__probe.addEventListener('message', listen);
+        window.__probe.postMessage({ id, type, payload });
+      });
+    })()`);
+    const started = Date.now();
+    await page.eval(`__call('load', { model: ${JSON.stringify(MODEL)} })`);
+    console.log(`Loaded ${MODEL} in ${((Date.now() - started) / 1000).toFixed(0)} s, temperature ${TEMPERATURE}\n`);
+    for (const [name, orders] of Object.entries(ORDERS)) {
+      let right = 0;
+      console.log(`ORDERS (${name}): ${orders}`);
+      for (const [label, state, wanted] of SITUATIONS) {
+        const actions = availableActions(state).map(({ id, label, detail }) => ({ id, label, detail }));
+        const result = await page.eval(`__call('decide', ${JSON.stringify({ orders, observation: observation(state), actions, temperature: TEMPERATURE })})`);
+        const chosen = JSON.parse(result.raw).action;
+        if (chosen === wanted) right++;
+        console.log(`  ${chosen === wanted ? '✓' : '✗'} ${label.padEnd(30)} chose ${chosen.padEnd(8)} wanted ${wanted}`);
+      }
+      console.log(`  ${right} of ${SITUATIONS.length} as the example orders intend\n`);
     }
-    console.log(`  ${right} of ${SITUATIONS.length} as the example orders intend\n`);
-  }
-} finally { await page.close(); server.closeAllConnections(); await new Promise(done => server.close(done)); }
+  } finally { await page.close(); server.closeAllConnections(); await new Promise(done => server.close(done)); }
+}

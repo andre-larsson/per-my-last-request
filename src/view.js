@@ -335,6 +335,24 @@ export function verdictHtml(verdict) {
 }
 
 /**
+ * The hero's read-back memo: each drill situation and the action the hero chose for it, filled in as answers arrive.
+ * `changed` marks an answer that differs from the previous read-back of the same assignment.
+ */
+export function readbackHtml(rb, { stale = false } = {}) {
+  const rows = rb.items.map((item, i) => {
+    const answer = rb.answers[i];
+    const act = answer ? `<strong class="rb-act">${escapeHtml(answer.label)}</strong>${answer.changed ? '<span class="rb-changed">changed</span>' : ''}`
+      : rb.pending && i === rb.answers.length ? '<span class="rb-act rb-thinking">thinking…</span>' : '<span class="rb-act rb-none">–</span>';
+    return `<li class="${answer?.changed ? 'changed' : ''}"><span class="rb-ask">${escapeHtml(item.ask)}</span>${act}</li>`;
+  }).join('');
+  const changed = rb.answers.filter(a => a.changed).length;
+  const foot = rb.error ? `<p class="rb-error" role="alert">${escapeHtml(rb.error)}</p>`
+    : stale ? '<p class="rb-note">You have changed the orders, the model or the temperature since. Read them back again to see the new answers.</p>'
+    : rb.pending ? '' : `<p class="rb-note">${changed ? `${plural(changed, 'answer')} changed since the last read-back. ` : ''}Each answer is one decision, asked as in a trial${rb.temperature > 0 ? `, at temperature ${rb.temperature.toFixed(1)}, so it can vary` : ''}. In a trial the numbers differ, so the hero can still choose otherwise.</p>`;
+  return `<div class="memo${stale ? ' stale' : ''}"><p class="memo-head"><span class="section-label">Re: your orders</span></p><p class="memo-lede">Per your last request, this is what I would do:</p><ol class="rb-list">${rows}</ol>${foot}</div>`;
+}
+
+/**
  * A rough token count, used until a loaded model counts the tokens itself. Fitted to the Qwen 2.5 tokenizer on ten
  * sample orders (2026-11-14): within 15% for plain sentences, up to 25% low for terse lists in capitals.
  */

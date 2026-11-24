@@ -67,10 +67,11 @@ export async function openModel({ quiet = false } = {}) {
             await window.__engine.resetChat();
             const r = await window.__engine.chat.completions.create({
               messages: p.messages,
-              response_format: { type: 'json_object', schema: JSON.stringify(p.schema || { type: 'object', properties: { action: { type: 'string', enum: p.ids } }, required: ['action'], additionalProperties: false }) },
+              // p.free (tune.mjs): no grammar on the reply, so the model may reason in text before its JSON.
+              ...(p.free ? {} : { response_format: { type: 'json_object', schema: JSON.stringify(p.schema || { type: 'object', properties: { action: { type: 'string', enum: p.ids } }, required: ['action'], additionalProperties: false }) } }),
               temperature, max_tokens: p.maxTokens || 64, stream: false,
-              // As the game's worker does: Qwen 3 thinks unless told not to.
-              ...(${JSON.stringify(MODEL)}.startsWith('Qwen3') ? { extra_body: { enable_thinking: false } } : {}),
+              // As the game's worker does: Qwen 3 thinks unless told not to. p.thinking (tune.mjs) lets it.
+              ...(${JSON.stringify(MODEL)}.startsWith('Qwen3') ? { extra_body: { enable_thinking: Boolean(p.thinking) } } : {}),
             });
             const c = r.choices[0];
             job.results.push({ raw: c.message.content, finish: c.finish_reason, ms: Math.round(performance.now() - start), promptTokens: r.usage?.prompt_tokens });
@@ -115,9 +116,12 @@ export async function openModel({ quiet = false } = {}) {
         // that is a model failure, reported as no answer. The game's own one-key reply must always complete.
         let json = null;
         // WebLLM returns Qwen 3's empty thinking block with the reply; the game removes exactly that prefix too.
-        const text = r.raw.startsWith('<think>\n\n</think>\n\n') ? r.raw.slice('<think>\n\n</think>\n\n'.length) : r.raw;
+        let text = r.raw.startsWith('<think>\n\n</think>\n\n') ? r.raw.slice('<think>\n\n</think>\n\n'.length) : r.raw;
+        // A free reply is reasoning followed by JSON: the last {...} in it is the answer.
+        if (slice[i].free) text = text.replace(/^<think>[\s\S]*?<\/think>/, '').match(/\{[^{}]*\}(?![\s\S]*\{)/)?.[0] ?? '';
         if (r.finish === 'stop') { try { json = JSON.parse(text); } catch { /* not JSON: no answer */ } }
-        if (!slice[i].schema) {
+        if (slice[i].free && json && !slice[i].ids.includes(json.action)) json = null;
+        if (!slice[i].schema && !slice[i].free) {
           if (!json) throw new Error(`Incomplete model decision (${r.finish}).`);
           if (!slice[i].ids.includes(json.action)) throw new Error(`Model chose an action that was not offered: ${json.action}`);
         }

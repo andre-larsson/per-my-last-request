@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { newGame, applyAction, availableActions, observation, nextMove, strikeDamage, commendations, MAX_TURNS, PRESETS, TUTORIAL_PRESETS, WARNING_PRESETS, PRIZE_PRESETS, LEVELS, LEVEL_ORDER, nextLevel } from '../src/game.js';
-import { actionSchema, parseDecision, decisionMessages, normalizeDecisionOutput } from '../src/protocol.js';
+import { actionSchema, parseDecision, decisionMessages, normalizeDecisionOutput, APPLYING_ORDERS } from '../src/protocol.js';
 
 // Scripted stand-ins for example orders. Test code only; never used as a controller in the game.
 // "Quick strike every turn, except: guard against a SMASH, drink a potion when health is LOW,
@@ -272,6 +272,36 @@ test('Qwen3 adapter removes only WebLLM\'s exact empty thinking prefill', () => 
     assert.throws(() => parseDecision(normalizeDecisionOutput(raw, qwen3), actions));
   }
   assert.throws(() => parseDecision(normalizeDecisionOutput(prefixed, 'Qwen2.5-3B-Instruct-q4f32_1-MLC'), actions));
+});
+test('the introductory assignment keeps its system prompt; the later ones say how orders are applied', () => {
+  const tutorial = applyAction(newGame('tutorial'), 'depart');
+  assert.equal(decisionMessages(TUTORIAL_PRESETS.careful, observation(tutorial), availableActions(tutorial))[0].content,
+    `You control one game hero. Follow these standing orders as your policy:\n\n${TUTORIAL_PRESETS.careful}\n\nChoose exactly one offered action at each turn, following the standing orders even when they are a bad strategy. Return only JSON: {"action":"ID"}. Use an available action ID. Do not explain your choice or invent actions.`);
+  for (const level of ['warning', 'prize', 'circuit']) {
+    for (const s of [newGame(level), applyAction(newGame(level), 'depart')]) {
+      const system = decisionMessages('Quick strike every turn.', observation(s), availableActions(s))[0].content;
+      assert.ok(system.includes(`Quick strike every turn.\n\n${APPLYING_ORDERS}\n\nChoose exactly one offered action`), `${level}: the paragraph follows the orders`);
+    }
+  }
+  assert.match(APPLYING_ORDERS, /An exception applies only when its condition is true this turn; the CHECKLIST says yes or no/);
+});
+test('the model sees what the enemy does in answer to each action only on a SMASH turn; the buttons always show it', () => {
+  const lines = (s, options) => decisionMessages('Quick strike every turn.', observation(s), availableActions(s), options)[1].content.split('AVAILABLE ACTIONS\n')[1];
+  const rat = applyAction(newGame('circuit'), 'depart');
+  assert.equal(nextMove(rat.enemy).kind, 'strike');
+  assert.doesNotMatch(lines(rat), /answers with|blocked down to/);
+  assert.match(lines(rat), /^quick: Quick strike\. 6 damage, recover 1 stamina\.$/m);
+  assert.match(lines(rat), /^guard: Guard\. Deal no damage\. Block up to 8 damage and recover 1 stamina\.$/m);
+  assert.match(lines(rat, { allAnswers: true }), /Practice rat answers with .*: you take \d+\./, 'the earlier prompt, kept for the experiments');
+  assert.match(availableActions(rat).find(a => a.id === 'quick').detail, /answers with/, 'the button keeps the answer');
+  const boar = play(newGame('circuit'), 'depart', 'quick', 'quick', 'advance', 'advance');
+  assert.equal(nextMove(boar.enemy).kind, 'smash');
+  assert.match(lines(boar), /^guard: Guard\. Against the SMASH: .*blocked down to \d+\. You counter for 10\.$/m);
+  assert.match(lines(boar), /^quick: .*Tin boar answers with .*: you take \d+\.$/m);
+  // The introductory assignment announces nothing, so its prompt is unchanged.
+  const tutorialRat = applyAction(newGame('tutorial'), 'depart');
+  assert.equal(lines(tutorialRat), lines(tutorialRat, { allAnswers: true }));
+  assert.match(lines(tutorialRat), /Enemy retaliates if still alive\./);
 });
 test('observations expose actual resource counts and keep commands out of model output', () => {
   const s = applyAction(newGame(), 'depart');

@@ -65,9 +65,9 @@ export const TILES = [
 export const LEVELS = {
   tutorial: { title: 'First instructions', course: [0, 1, 11], turnLimit: 12, stamps: ['rat'], champion: false, announced: false, presets: TUTORIAL_PRESETS,
     objective: () => 'Defeat the practice rat, earn one training stamp, return to camp, and submit the assignment before 12 turns.' },
-  warning: { title: 'Fair warning', course: [0, 1, 3, 7, 11], turnLimit: 16, stamps: ['rat', 'boar', 'quickfoot'], champion: false, announced: true, presets: WARNING_PRESETS,
+  warning: { title: 'Fair warning', course: [0, 1, 3, 7, 11], turnLimit: 16, stamps: ['rat', 'boar', 'quickfoot'], champion: false, announced: true, drawn: true, presets: WARNING_PRESETS,
     objective: s => `Earn the rat, boar, and Quickfoot stamps, return to camp, and submit the assignment before ${s.turnLimit} turns.` },
-  prize: { title: 'Prize money', course: [0, 4, 5, 6, 7, 8, 9, 10, 11], turnLimit: 30, stamps: ['quickfoot'], champion: true, announced: true, presets: PRIZE_PRESETS,
+  prize: { title: 'Prize money', course: [0, 4, 5, 6, 7, 8, 9, 10, 11], turnLimit: 30, stamps: ['quickfoot'], champion: true, announced: true, drawn: true, presets: PRIZE_PRESETS,
     objective: s => `Earn the Quickfoot stamp, defeat the champion, return to camp, and submit the assignment before ${s.turnLimit} turns.` },
   circuit: { title: 'The full circuit', course: TILES.map((tile, i) => i), turnLimit: MAX_TURNS, stamps: ['rat', 'boar', 'quickfoot'], champion: true, announced: true, commendations: true, presets: PRESETS,
     objective: s => `Earn the rat, boar, and Quickfoot stamps, defeat the champion, return to camp, and submit the assignment before ${s.turnLimit} turns.` },
@@ -78,8 +78,14 @@ export const levelOf = s => LEVELS[s.level] || LEVELS.circuit;
 /** The assignment after this one, or null after the last. */
 export const nextLevel = level => LEVEL_ORDER[LEVEL_ORDER.indexOf(level) + 1] || null;
 
-export function newGame(level = 'tutorial') {
-  return { level, turnLimit: (LEVELS[level] || LEVELS.circuit).turnLimit, revision: 0, turn: 0, position: 0, lap: 1, hp: 40, maxHp: 40, stamina: 4, potions: 2, coins: 0, sword: 0, buckler: 0, stamps: [], champion: false, prizeWon: false, drank: 0, bigHitsTaken: 0, medicUsed: false, purseTaken: false, benchUsed: false, enemy: null, resolved: false, status: 'ready', log: [] };
+/**
+ * A fresh trial. In an assignment marked `drawn`, a numeric `seed` deals each opponent's routine (the champion's
+ * excepted) in a shuffled order every round, so each trial meets the moves in a different order; the same seed gives
+ * the same order. Without a seed (tests, tools, the read-back drill) every opponent keeps its fixed routine.
+ */
+export function newGame(level = 'tutorial', seed = null) {
+  const drawn = (LEVELS[level] || LEVELS.circuit).drawn && Number.isFinite(seed);
+  return { level, seed: drawn ? seed >>> 0 : null, turnLimit: (LEVELS[level] || LEVELS.circuit).turnLimit, revision: 0, turn: 0, position: 0, lap: 1, hp: 40, maxHp: 40, stamina: 4, potions: 2, coins: 0, sword: 0, buckler: 0, stamps: [], champion: false, prizeWon: false, drank: 0, bigHitsTaken: 0, medicUsed: false, purseTaken: false, benchUsed: false, enemy: null, resolved: false, status: 'ready', log: [] };
 }
 export function assignmentReady(s) {
   const rules = levelOf(s);
@@ -127,20 +133,24 @@ const TUTORIAL_POTION = s => `Restore up to ${POTION_HP} HP. ${s.potions} potion
 export function availableActions(s) {
   if (s.status === 'won' || s.status === 'lost') return [];
   const actions = [];
-  const add = (id, label, command, detail) => actions.push({ id, label, command, detail: detail || label });
+  // `answer`: the sentence at the end of `detail` saying what the enemy's announced move does in reply, kept apart so
+  // the model's prompt can leave it out (src/protocol.js).
+  const add = (id, label, command, detail, answer) => actions.push({ id, label, command, detail: detail || label, ...(answer ? { answer } : {}) });
   if (s.enemy) {
     const e = s.enemy;
     const m = nextMove(e);
-    if (s.potions > 0 && s.hp < s.maxHp) add('potion', 'Drink potion', { type: 'heal' }, announced(s) ? `${s.hp <= LOW_HP ? 'Your health is LOW. ' : ''}Restore up to ${POTION_HP} HP. ${s.potions} potions left. Takes one turn. ${answerText(s)}` : TUTORIAL_POTION(s));
+    const answer = announced(s) ? answerText(s) : null;
+    if (s.potions > 0 && s.hp < s.maxHp) add('potion', 'Drink potion', { type: 'heal' }, announced(s) ? `${s.hp <= LOW_HP ? 'Your health is LOW. ' : ''}Restore up to ${POTION_HP} HP. ${s.potions} potions left. Takes one turn. ${answerText(s)}` : TUTORIAL_POTION(s), answer);
     const quick = strikeDamage(s, 'quick');
-    const finish = (damage) => announced(s) && damage >= e.hp ? `Defeats ${e.name}.` : answerText(s);
-    add('quick', 'Quick strike', { type: 'attack', style: 'quick' }, `${quick} damage, recover 1 stamina. ${finish(quick)}`);
+    const defeats = damage => announced(s) && damage >= e.hp;
+    const finish = (damage) => defeats(damage) ? `Defeats ${e.name}.` : answerText(s);
+    add('quick', 'Quick strike', { type: 'attack', style: 'quick' }, `${quick} damage, recover 1 stamina. ${finish(quick)}`, defeats(quick) ? null : answer);
     if (s.stamina >= 2) {
       const heavy = strikeDamage(s, 'heavy');
       const dodge = e.agile && m.kind !== 'winded' ? ' This enemy evades most of a heavy strike.' : '';
-      add('heavy', 'Heavy strike', { type: 'attack', style: 'heavy' }, `${heavy} damage, costs 2 stamina.${dodge} ${finish(heavy)}`);
+      add('heavy', 'Heavy strike', { type: 'attack', style: 'heavy' }, `${heavy} damage, costs 2 stamina.${dodge} ${finish(heavy)}`, defeats(heavy) ? null : answer);
     }
-    if (announced(s)) add('guard', 'Guard', { type: 'guard' }, `${m.kind === 'smash' ? 'Against the SMASH: ' : ''}Deal no damage. Block up to ${guardBlock(s)} damage and recover 1 stamina. ${answerText(s, true)}`);
+    if (announced(s)) add('guard', 'Guard', { type: 'guard' }, `${m.kind === 'smash' ? 'Against the SMASH: ' : ''}Deal no damage. Block up to ${guardBlock(s)} damage and recover 1 stamina. ${answerText(s, true)}`, answerText(s, true));
     add('retreat', 'Retreat', { type: 'retreat' }, `Take 2 damage and leave this fight. ${e.stamp ? 'No training stamp earned.' : e.boss ? 'Champion remains undefeated.' : 'No prize earned.'}`);
     return actions;
   }
@@ -162,12 +172,29 @@ export function availableActions(s) {
   return actions;
 }
 
+/** A small seeded random generator (mulberry32): the same seed, the same numbers. */
+function seeded(seed) {
+  let a = seed >>> 0;
+  return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+}
+function shuffle(list, rng) {
+  const out = [...list];
+  for (let i = out.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); [out[i], out[j]] = [out[j], out[i]]; }
+  return out;
+}
 function enterTile(s, say) {
   const tile = currentTile(s);
   s.resolved = false;
   if (tile.kind === 'enemy' && !(tile.boss && s.champion)) {
     const bonus = s.lap - 1;
-    const routine = tile.routine.map(m => ({ ...m, damage: m.damage ? m.damage + bonus : 0 }));
+    const base = tile.routine.map(m => ({ ...m, damage: m.damage ? m.damage + bonus : 0 }));
+    // Drawn: the routine repeated in a shuffled order each time round, so every move still comes once per round (the boar
+    // charges once in every two moves) but not in a known order. One stream per seed, stop and lap, so the fight is the
+    // same whatever the hero did before it.
+    // The champion keeps its fixed routine: the finale is a pattern to learn, and a shuffled one let Prize money's first
+    // draft (no potions) win half its trials.
+    const rng = s.seed == null || tile.boss ? null : seeded(s.seed * 7919 + s.position * 104729 + s.lap * 1299709);
+    const routine = rng ? Array.from({ length: 16 }, () => shuffle(base, rng)).flat().map(m => ({ ...m })) : base;
     s.enemy = { name: tile.name, hp: tile.hp + bonus * 3, maxHp: tile.hp + bonus * 3, damage: tile.damage + bonus, armor: tile.armor, agile: !!tile.agile, stamp: tile.stamp || null, optional: !!tile.optional, boss: !!tile.boss, prize: tile.prize || 2, routine, step: 0 };
     say('world', 'enter', `${tile.name} steps onto the course.`, { position: s.position });
   }

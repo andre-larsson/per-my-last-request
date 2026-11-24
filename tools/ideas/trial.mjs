@@ -22,7 +22,8 @@ import { join } from 'node:path';
 import { ROOT } from '../serve.mjs';
 import * as G from '../../src/game.js';
 import { decisionMessages } from '../../src/protocol.js';
-import { TELLS, FEINT_SHARE } from './tells.mjs';
+import { FEINT_SHARE } from './tells.mjs';
+import { rngOf, over, drawFight, step } from './drawn.mjs';
 import { choose } from './keyword-bot.mjs';
 import { openModel, messagesFor, MODEL, TEMPERATURE } from './llm.mjs';
 
@@ -37,29 +38,6 @@ const ARMS = arg('--arms', 'prose,labelled').split(',');
 G.LEVELS.smashers = { title: 'Heavy hitters (experiment)', course: [0, 3, 5, 10, 11], turnLimit: Number(arg('--limit', 30)), stamps: ['boar'], champion: true, announced: true, presets: G.PRIZE_PRESETS,
   objective: s => `Earn the boar stamp, defeat the champion, return to camp, and submit the assignment before ${s.turnLimit} turns.` };
 if (arg('--limit', null) && LEVEL && LEVEL !== 'smashers') G.LEVELS[LEVEL].turnLimit = Number(arg('--limit'));
-
-const rngOf = seed => { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; };
-const FOE_KEY = { 'Practice rat': 'rat', 'Tin boar': 'boar', 'Prize bruiser': 'bruiser', Quickfoot: 'quickfoot', 'Arena champion': 'champion' };
-const over = s => s.status === 'won' || s.status === 'lost';
-
-/** A newly met opponent gets its moves for the whole fight: drawn from its routine, each with a sentence. */
-function drawFight(s, seed) {
-  const e = s.enemy;
-  if (!e || e.drawn) return s;
-  // One stream per seed, stop and lap, so every hero meets the same fight whatever it did before.
-  const rng = rngOf(seed * 7919 + s.position * 104729 + s.lap * 1299709);
-  const pools = TELLS[FOE_KEY[e.name]];
-  const base = e.routine;
-  e.routine = Array.from({ length: 64 }, () => {
-    const m = base[Math.floor(rng() * base.length)];
-    const feint = m.kind !== 'smash' && pools.feint && rng() < FEINT_SHARE;
-    const pool = feint ? pools.feint : pools[m.kind];
-    return { ...m, feint: Boolean(feint), tell: pool[Math.floor(rng() * pool.length)] };
-  });
-  e.drawn = true;
-  return s;
-}
-const step = (s, id, seed) => { const next = G.applyAction({ ...s, log: [] }, id, 'bot'); next.log = []; return drawFight(next, seed); };
 
 // ---------- prompts ----------
 const yes = value => value ? 'yes' : 'no';

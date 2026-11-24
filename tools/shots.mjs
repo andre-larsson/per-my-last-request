@@ -70,7 +70,8 @@ const STATES = {
 try {
   await page.goto(`http://127.0.0.1:${server.address().port}/`);
   await page.waitFor('!QuestDemo.snapshot().checkingDevice');
-  await page.eval(`QuestDemo.setPace('instant')`);
+  // Fixed routines, so the screenshots show the same fights every run.
+  await page.eval(`QuestDemo.setPace('instant'); QuestDemo.setSeed(null)`);
   const small = new Map();
   for (const [name, setup] of Object.entries(STATES)) {
     await page.viewport(1440, 900);

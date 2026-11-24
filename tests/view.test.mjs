@@ -305,6 +305,30 @@ test('rulebook: prize money, the champion, and stronger opponents on later laps'
   assert.equal(secondLap.lap, 2);
   assert.deepEqual([secondLap.enemy.hp, nextMove(secondLap.enemy).damage], [13, 4], 'lap 2 adds 3 HP and 1 damage');
 });
+test('rulebook: in 02 and 03 the order of moves is new every trial, each move once per round; the champion never changes', () => {
+  const movesOf = (level, seed, name) => {
+    let s = newGame(level, seed);
+    while (!s.enemy || s.enemy.name !== name) {
+      const ids = availableActions(s).map(a => a.id);
+      s = applyAction(s, ids.includes('quick') ? 'quick' : ids.includes('advance') ? 'advance' : ids[0]);
+    }
+    return s.enemy.routine.map(m => m.kind);
+  };
+  const orders = new Set();
+  for (let seed = 1; seed <= 20; seed++) {
+    const boar = movesOf('warning', seed, 'Tin boar');
+    for (let round = 0; round < 8; round++) assert.deepEqual(boar.slice(round * 2, round * 2 + 2).sort(), ['smash', 'strike'], 'each round holds the routine once');
+    orders.add(boar.slice(0, 6).join(' '));
+    assert.deepEqual(movesOf('prize', seed, 'Arena champion'), ['strike', 'brace', 'smash', 'winded'], 'the champion keeps its routine');
+  }
+  assert.ok(orders.size > 3, 'trials meet the boar in different orders');
+  assert.deepEqual(movesOf('warning', 7, 'Quickfoot'), movesOf('warning', 7, 'Quickfoot'), 'the same trial seed, the same order');
+  assert.ok(new Set([1, 2, 3, 4, 5, 6].map(seed => movesOf('prize', seed, 'Quickfoot').slice(0, 6).join())).size > 1, 'Quickfoot varies in 03');
+  // The full circuit and the introductory assignment ignore the seed; without one, routines are fixed everywhere.
+  assert.deepEqual(movesOf('circuit', 7, 'Tin boar'), ['smash', 'strike']);
+  assert.deepEqual(movesOf('warning', null, 'Tin boar'), ['smash', 'strike']);
+  assert.equal(newGame('tutorial', 7).seed, null);
+});
 test('rulebook: reading the opponent in the full circuit', () => {
   // Every circuit opponent announces its move before the hero acts, and repeats its routine.
   for (const index of [1, 3, 5, 7, 10]) {

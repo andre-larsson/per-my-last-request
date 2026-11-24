@@ -35,9 +35,25 @@ export function checklist(s) {
     `- Optional prize fight: ${yes(e?.optional)}`,
   ].join('\n');
 }
-export function decisionMessages(orders, observation, actions) {
+/**
+ * How orders are applied, for the assignments with announced moves and a checklist. Added 2026-11-24 after a test with
+ * Qwen 2.5 3B on 36 orders written by a second author, not used for tuning: trials won 61 of 144 with it, 30 without
+ * (GAME_NOTES, "Prompt tuning on the 3B"). The introductory assignment keeps the prompt its verified run saw.
+ */
+export const APPLYING_ORDERS = 'How to apply them: orders usually say what to do in general and name a few exceptions. An exception applies only when its condition is true this turn; the CHECKLIST says yes or no for the usual conditions. When no exception applies, do what the orders say to do in general. Do not rest, shop, visit the medic or drink a potion unless the orders ask for it.';
+/**
+ * On a fight turn without an announced SMASH, the action lines leave out the enemy's answer (what its move would do
+ * after each action). Added 2026-11-24 after a test with Qwen 2.5 3B: that comparison made it guard ordinary strikes,
+ * the commonest way it departed from its orders, while on a SMASH turn it is what makes it guard. On 36 orders written
+ * by a second author, trials won 90 of 144 with it, 61 without (GAME_NOTES, "Prompt tuning on the 3B", `focus`).
+ * The game's buttons show the full text. `allAnswers` keeps every answer (the earlier prompt, for the experiments).
+ */
+const answerShown = (s, allAnswers) => allAnswers || !s.announcedMoves || !s.enemy?.nextMove || s.enemy.nextMove.kind === 'smash';
+const actionLine = (action, showAnswer) => `${action.id}: ${action.label}. ${!showAnswer && action.answer && action.detail.endsWith(` ${action.answer}`) ? action.detail.slice(0, -action.answer.length - 1) : action.detail}`;
+export function decisionMessages(orders, observation, actions, { allAnswers = false } = {}) {
   const s = observation;
   const e = s.enemy;
+  const showAnswer = answerShown(s, allAnswers);
   const facts = [
     `Location: ${s.location}. Turn ${s.progress.turn} of ${s.progress.turnLimit}.`,
     `Your health is ${s.hero.hp} out of ${s.hero.maxHp}. Health status: ${s.hero.healthStatus}. You have ${s.hero.potions} healing potions, ${s.hero.stamina} stamina, and ${s.hero.coins} coins.`,
@@ -48,7 +64,7 @@ export function decisionMessages(orders, observation, actions) {
       : `Enemy: ${e.name}, ${e.hp} of ${e.maxHp} health. ${e.armor ? `This enemy is armored: it blocks ${e.armor} of every strike.` : 'This enemy is not armored.'}${e.agile ? ' This enemy is agile and evades heavy attacks unless it is winded.' : ''} ${e.optional ? 'This is an optional prize fight.' : e.stamp ? 'This fight gives a required training stamp.' : 'This is the champion fight.'}\n${moveFact(e.nextMove)}\n${checklist(s)}`,
   ].join('\n');
   return [
-    { role: 'system', content: `You control one game hero. Follow these standing orders as your policy:\n\n${orders}\n\nChoose exactly one offered action at each turn, following the standing orders even when they are a bad strategy. Return only JSON: {"action":"ID"}. Use an available action ID. Do not explain your choice or invent actions.` },
-    { role: 'user', content: `CURRENT SITUATION\n${facts}\n\nAVAILABLE ACTIONS\n${actions.map(action => `${action.id}: ${action.label}. ${action.detail}`).join('\n')}\n\nChoose the next action according to your standing orders.` },
+    { role: 'system', content: `You control one game hero. Follow these standing orders as your policy:\n\n${orders}\n\n${s.announcedMoves ? `${APPLYING_ORDERS}\n\n` : ''}Choose exactly one offered action at each turn, following the standing orders even when they are a bad strategy. Return only JSON: {"action":"ID"}. Use an available action ID. Do not explain your choice or invent actions.` },
+    { role: 'user', content: `CURRENT SITUATION\n${facts}\n\nAVAILABLE ACTIONS\n${actions.map(action => actionLine(action, showAnswer)).join('\n')}\n\nChoose the next action according to your standing orders.` },
   ];
 }

@@ -341,6 +341,23 @@ textarea:disabled { opacity: .75; }
 .presets > div { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .presets button { flex: 1 1 auto; padding: 8px 12px; border: 1px solid var(--line-strong); background: var(--raised); font-size: 14px; font-weight: 600; box-shadow: 0 2px 0 var(--edge); }
 .presets button:hover:not(:disabled) { background: var(--ochre-soft); border-color: var(--ochre); color: var(--ochre); }
+/* The hero's read-back: a reply memo under the letter, one line per drill situation. */
+.readback { margin-top: 14px; }
+.readback .secondary { width: 100%; min-height: 44px; }
+.readback-hint { margin-top: 8px; color: var(--muted); font-size: 14px; line-height: 1.45; }
+.memo { margin-top: 12px; padding: 12px 14px; border: 1px solid var(--line-strong); border-left: 4px solid var(--green); border-radius: 2px; background: var(--raised); }
+.memo.stale { opacity: .6; border-left-color: var(--line-strong); }
+.memo-head .section-label { color: var(--green); }
+.memo-lede { margin: 4px 0 8px; font: italic 16px/1.35 var(--serif); }
+.rb-list { margin: 0; padding: 0; list-style: none; }
+.rb-list li { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 2px 12px; padding: 6px 0; border-top: 1px solid var(--line); font-size: 14px; line-height: 1.4; }
+.rb-ask { flex: 1 1 14em; color: var(--ink-soft); }
+.rb-act { flex: 0 0 auto; text-align: right; }
+.rb-thinking, .rb-none { color: var(--muted); font-style: italic; font-weight: 400; }
+.rb-changed { flex: 0 0 auto; padding: 0 6px; border-radius: 2px; background: var(--ochre-soft); color: var(--ochre); font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.rb-list li.changed .rb-act { color: var(--ochre); }
+.rb-note, .rb-error { margin-top: 8px; color: var(--muted); font-size: 13px; line-height: 1.45; }
+.rb-error { color: var(--rust); }
 body[data-mode='manual'] .letter textarea, body[data-mode='random'] .letter textarea { opacity: .6; }
 /* The Random hero does not read the letter: it is locked and dimmed (disabled buttons dim themselves), and a note says why. */
 body[data-mode='random'] .letter :is(.salutation, .letter-signoff) { opacity: .5; }

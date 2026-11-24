@@ -1,9 +1,10 @@
 import { newGame, availableActions, applyAction, observation, LEVELS, nextLevel, LOW_HP } from './game.js';
 import { parseDecision, decisionMessages } from './protocol.js';
+import { drillFor, kindOf } from './drill.js';
 import { LocalModel } from './model.js';
 import { renderMap } from './map.js';
 import { MODELS, findModel, modelSize, checkDevice, recommendModel, selectedModelAdvice } from './models.js';
-import { escapeHtml, artUrl, goalChecks, checklistHtml, isLimit, sceneFor, journalHtml, verdictFor, verdictHtml, stampTarget, ordersSize, turnBeats, displayAt, turnFeedHtml, shoutFor, PACES, PACE_ORDER, BEAT_MS, musicFor } from './view.js';
+import { escapeHtml, readbackHtml, artUrl, goalChecks, checklistHtml, isLimit, sceneFor, journalHtml, verdictFor, verdictHtml, stampTarget, ordersSize, turnBeats, displayAt, turnFeedHtml, shoutFor, PACES, PACE_ORDER, BEAT_MS, musicFor } from './view.js';
 import { unlockSound, setSoundEnabled, playSound } from './sound.js';
 import { unlockMusic, setMusicEnabled, setMusic, musicPlaying, musicState } from './music.js';
 
@@ -12,7 +13,11 @@ const $ = id => document.getElementById(id);
 const MANUAL_SANDBOX = document.documentElement.hasAttribute('data-manual-sandbox');
 
 let level = 'tutorial';
-let game = newGame(level);
+// Each trial draws a new seed, so in Fair warning and Prize money the opponents' moves come in a new order (src/game.js).
+// Tools may fix it: `QuestDemo.setSeed(n)` for one known draw, `setSeed(null)` for the fixed routines.
+let seedOverride;
+const trialSeed = () => seedOverride !== undefined ? seedOverride : Math.floor(Math.random() * 2 ** 32);
+let game = newGame(level, trialSeed());
 let epoch = 0;
 let running = false; // A run is in progress, paused or not.
 let paused = false; // Pause froze the run: playback, the hero's thinking, and any reply that arrives all wait for Continue.
@@ -48,6 +53,23 @@ let modelBusy = 0;
 let awaitingModel = false; // The options have been up long enough, and the model still has not answered.
 let holdAt = null; // Debug and screenshot aid: playback stops advancing once it reaches this beat.
 let decisionSeconds = new Map(); // Turn number → model seconds, for this trial.
+// The hero's read-back: the assignment's drill situations (src/drill.js), answered by the model with the typed orders,
+// asked exactly as in a trial, before one starts. { level, orders, model, temperature, items, answers, pending, error }.
+let readback = null;
+let readbackRun = 0; // Each read-back, and anything that cancels one, starts a new number; older answers are dropped.
+// The drill kinds each assignment's trials have met, kept in this browser. A read-back asks only about these, so the
+// hero never previews a stop or a move the player has not yet seen: the first trial of an assignment stays a surprise.
+const metKey = name => `pmlq.met.${name}`;
+const met = name => { try { return new Set(JSON.parse(localStorage.getItem(metKey(name)) || '[]')); } catch { return new Set(); } };
+const metDrill = () => { const seen = met(level); return drillFor(level).filter(item => seen.has(item.id)); };
+function noteMet(state) {
+  const kind = kindOf(state);
+  if (!kind) return;
+  const seen = met(state.level);
+  if (seen.has(kind)) return;
+  seen.add(kind);
+  store(metKey(state.level), JSON.stringify([...seen]));
+}
 let warnedAt = '';
 const stored = (key, fallback) => { try { return localStorage.getItem(key) ?? fallback; } catch { return fallback; } };
 const store = (key, value) => { try { localStorage.setItem(key, value); } catch { /* Storage may be unavailable in private browser contexts. */ } };
@@ -188,7 +210,7 @@ function stopRun() {
 }
 function reset() {
   stopRun();
-  game = newGame(level);
+  game = newGame(level, trialSeed());
   runOrders = typedOrders();
   runTemperature = temperature;
   promptVersion++;
@@ -202,6 +224,7 @@ function reset() {
 function setLevel(next) {
   if (locked() || next === level) return;
   level = next;
+  cancelReadback(true);
   $('orders').value = storedOrders() || presets().reckless;
   reset();
 }
@@ -485,6 +508,7 @@ function render() {
   renderMoves(s);
   renderControls(s);
   renderOrders();
+  renderReadback();
   renderController();
   renderMapRegion(s);
   paint('journal', `${epoch}:${s.log.length}`, () => { $('journal').innerHTML = journalHtml(s.log); });
@@ -565,6 +589,7 @@ const playbackDone = () => playback ? playback.done.promise : Promise.resolve();
 
 function commit(actionId, source) {
   const before = game;
+  noteMet(before);
   game = applyAction(game, actionId, source);
   for (const [key, entry] of prepared) if (entry.revision < game.revision) prepared.delete(key);
   if (source === 'llm' && lastDecision) decisionSeconds.set(game.turn, lastDecision.elapsed / 1000);
@@ -608,25 +633,85 @@ function decisionFor(state, actions) {
   const known = prepared.get(key);
   if (known) return known.promise;
   const requestEpoch = epoch;
-  const payload = decisionPayload(state, actions);
+  const promise = queueDecision(decisionPayload(state, actions), actions, () => requestEpoch !== epoch);
+  promise.settled = false;
+  // Settling also keeps an unused rejection quiet. A stop says whether the next move is ready, so it repaints.
+  promise.then(() => { promise.settled = true; if (reviewing) render(); }, () => { promise.settled = true; });
+  prepared.set(key, { revision: state.revision, promise });
+  return promise;
+}
+/** One decision request, queued behind any other. `cancelled` drops it before it is sent and stops a retry. */
+function queueDecision(payload, actions, cancelled) {
   const promise = workerQueue.catch(() => {}).then(async () => {
-    if (requestEpoch !== epoch) throw new Stale('Superseded before it was sent.');
+    if (cancelled()) throw new Stale('Superseded before it was sent.');
     modelBusy++;
     try {
       for (let attempt = 0; ; attempt++) {
         try {
           const result = await model.decide(payload);
           return { ...result, action: parseDecision(result.raw, actions) };
-        } catch (error) { if (requestEpoch !== epoch || !model.ready || attempt === 1) throw error; }
+        } catch (error) { if (cancelled() || !model.ready || attempt === 1) throw error; }
       }
     } finally { modelBusy--; }
   });
-  promise.settled = false;
-  // Settling also keeps an unused rejection quiet. A stop says whether the next move is ready, so it repaints.
-  promise.then(() => { promise.settled = true; if (reviewing) render(); }, () => { promise.settled = true; });
   workerQueue = promise;
-  prepared.set(key, { revision: state.revision, promise });
   return promise;
+}
+const readbackStale = () => Boolean(readback) && (readback.orders !== typedOrders() || readback.model !== model.model || readback.temperature !== temperature || readback.level !== level);
+const canReadBack = () => mode === 'llm' && model.ready && !running && !readback?.pending && Boolean(typedOrders()) && metDrill().length > 0;
+/**
+ * The hero reads the orders back: one decision for each drill situation of this assignment, with the orders as typed,
+ * at the temperature the next trial will use. No game turn is spent and the trial is untouched. A run, a new
+ * assignment or another controller cancels it; a model error ends it and is shown in the memo.
+ */
+async function readBack() {
+  if (!canReadBack()) return;
+  const run = ++readbackRun;
+  const cancelled = () => run !== readbackRun;
+  const drill = metDrill();
+  // Answers from the previous read-back of this assignment, so the memo can mark what the new orders changed.
+  const before = readback?.level === level ? new Map(readback.items.map((item, i) => [item.id, readback.answers[i]?.action])) : new Map();
+  readback = { level, orders: typedOrders(), model: model.model, temperature, items: drill.map(({ id, ask }) => ({ id, ask })), answers: [], pending: true, error: null };
+  render();
+  for (const item of drill) {
+    const actions = availableActions(item.state);
+    try {
+      const decision = await queueDecision({ orders: readback.orders, observation: observation(item.state), actions, temperature: readback.temperature }, actions, cancelled);
+      if (cancelled()) return;
+      readback.answers.push({ action: decision.action, label: actions.find(a => a.id === decision.action).label, changed: before.has(item.id) && before.get(item.id) !== decision.action });
+    } catch (error) {
+      if (cancelled()) return;
+      readback.error = `${error.message} No turn was spent.`;
+      break;
+    }
+    render();
+  }
+  readback.pending = false;
+  render();
+}
+/** Stops a read-back in progress. The answers that arrived stay; `clear` drops the memo as well. */
+function cancelReadback(clear = false) {
+  readbackRun++;
+  if (clear) readback = null;
+  else if (readback?.pending) { readback.pending = false; readback.error = readback.error || 'Read-back stopped before the end.'; }
+}
+function renderReadback() {
+  const visible = mode === 'llm';
+  $('readback-box').hidden = !visible;
+  if (!visible) return;
+  const stale = readbackStale();
+  const ask = $('readback-ask');
+  const more = Boolean(readback) && !readback.pending && readback.items.length < metDrill().length; // A trial met something new.
+  ask.disabled = !canReadBack() || (Boolean(readback) && !stale && !more && !readback.error && readback.temperature === 0);
+  ask.textContent = readback?.pending ? `Reading back… ${readback.answers.length} of ${readback.items.length}` : readback && !readback.error && !stale && !more ? 'Read back ✓' : readback ? 'Read them back again' : 'Ask the hero to read them back';
+  const known = metDrill().length;
+  $('readback-hint').textContent = !model.ready ? 'Load the model, and the hero can read your orders back between trials.'
+    : running ? 'The hero reads back between trials.'
+    : !known ? 'The hero can only read back what it has met. Run a trial first.'
+    : more ? `The last trial met something new: ${known} situations to read back now.`
+    : readback ? '' : `The hero says what it would do in the ${known === 1 ? 'one situation' : `${known} situations`} met so far in this assignment. No turn is spent.`;
+  $('readback-hint').hidden = !$('readback-hint').textContent;
+  paint('readback', JSON.stringify([readback, stale]), () => { $('readback').innerHTML = readback ? readbackHtml(readback, { stale }) : ''; });
 }
 function prepareOrders() {
   if (!runOrders || game.turn === 0) runOrders = typedOrders();
@@ -727,6 +812,7 @@ async function run() {
     else { setPaused(false); render(); return; }
   }
   if (deciding() || playback || !canRun()) return;
+  cancelReadback();
   restartIfStale();
   running = true;
   hasError = false;
@@ -771,6 +857,7 @@ async function loadModel() {
 function setMode(next) {
   if (loading || next === mode || (next === 'manual' && !MANUAL_SANDBOX)) return;
   stopRun();
+  cancelReadback();
   mode = next;
   hasError = false;
   status = mode === 'manual' ? 'Manual sandbox: choose actions under the stage. Your orders are not read.'
@@ -795,6 +882,7 @@ $('use-recommendation').addEventListener('click', () => {
   $('model').dispatchEvent(new Event('change'));
 });
 $('run').addEventListener('click', run);
+$('readback-ask').addEventListener('click', readBack);
 $('reset').addEventListener('click', reset);
 $('skip').addEventListener('click', skipPlayback);
 $('pace').addEventListener('click', () => {
@@ -825,7 +913,7 @@ document.addEventListener('keydown', unlockMusic);
 $('orders').addEventListener('input', saveOrders);
 document.querySelectorAll('[data-mode]').forEach(button => button.addEventListener('click', () => setMode(button.dataset.mode)));
 document.querySelectorAll('[data-level]').forEach(tab => tab.addEventListener('click', () => setLevel(tab.dataset.level)));
-$('model').addEventListener('change', () => { stopRun(); model.dispose(); $('model-status').textContent = 'Selected a new model. Load it to continue.'; status = 'Model changed. Load it to continue.'; hasError = false; render(); });
+$('model').addEventListener('change', () => { stopRun(); cancelReadback(); model.dispose(); $('model-status').textContent = 'Selected a new model. Load it to continue.'; status = 'Model changed. Load it to continue.'; hasError = false; render(); });
 document.querySelectorAll('[data-preset]').forEach(button => button.addEventListener('click', () => { $('orders').value = presets()[button.dataset.preset]; saveOrders(); reset(); }));
 $('next-level').addEventListener('click', () => { if (nextLevel(level)) setLevel(nextLevel(level)); });
 $('options').addEventListener('click', event => {
@@ -852,12 +940,13 @@ window.addEventListener('beforeunload', () => model.dispose());
 // `setReadAhead(n)` limits how many decisions the model prepares ahead (0: none, as a test of plain waiting).
 window.QuestDemo = {
   countTokens: text => model.countTokens(text),
-  snapshot: () => structuredClone({ game, mode, level, running, paused, stopEachTurn: stopEachTurn(), reviewing: reviewing ? reviewing.entry.turn : null, prepared: [...prepared.values()].filter(entry => entry.promise.settled).length, thinking: deciding(), phase, playing: Boolean(playback), beat: playback ? playback.index : null, beatKinds: playback ? playback.beats.map(beat => beat.kind) : null, awaitingModel, modelBusy: modelBusy > 0, pace, instant, sound: soundOn, music: musicState(), modelReady: model.ready, temperature, runTemperature, status, lastDecision, orders: runOrders, device, checkingDevice, recommendation: recommendation?.model?.id || null }),
+  snapshot: () => structuredClone({ game, mode, level, running, paused, stopEachTurn: stopEachTurn(), reviewing: reviewing ? reviewing.entry.turn : null, prepared: [...prepared.values()].filter(entry => entry.promise.settled).length, thinking: deciding(), phase, playing: Boolean(playback), beat: playback ? playback.index : null, beatKinds: playback ? playback.beats.map(beat => beat.kind) : null, awaitingModel, modelBusy: modelBusy > 0, pace, instant, sound: soundOn, music: musicState(), modelReady: model.ready, temperature, runTemperature, status, lastDecision, orders: runOrders, device, checkingDevice, recommendation: recommendation?.model?.id || null, met: [...met(level)], readback: readback && { pending: readback.pending, actions: readback.answers.map(a => a.action), changed: readback.answers.filter(a => a.changed).length, error: readback.error, stale: readbackStale() } }),
   loadModel,
   setPace: name => { if (name === 'instant') instant = true; else if (PACES[name]) { pace = name; instant = false; } render(); },
   hold: beat => { holdAt = Number.isInteger(beat) ? beat : null; },
   skip: skipPlayback,
   setReadAhead: depth => { readAheadDepth = Math.max(0, Math.floor(Number(depth)) || 0); },
+  setSeed: seed => { seedOverride = seed === null ? null : seed === undefined ? undefined : Number(seed); },
 };
 render();
 checkHardware();

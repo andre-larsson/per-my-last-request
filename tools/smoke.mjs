@@ -68,6 +68,35 @@ async function stubbedLlmFlow(page, url) {
   await page.waitFor(sizeShows(await page.eval('document.querySelector("#orders").value.trim()')));
   assert.match(await page.eval('document.querySelector("#orders-size").title'), /counted by Qwen 2\.5 · 0\.5B/);
   await page.screenshot(join(artifacts, 'flow-ready.png'));
+  // The read-back asks only about situations a trial has met, so before the first trial there is nothing to ask.
+  assert.equal(await page.eval('document.querySelector("#readback-ask").disabled'), true, 'No read-back before a trial');
+  assert.match(await page.eval('document.querySelector("#readback-hint").textContent'), /Run a trial first/);
+  await page.eval('QuestDemo.setReadAhead(0)');
+  for (let i = 0; i < 12 && !['won', 'lost'].includes(await snap('game.status')); i++) { await page.click('#run'); await page.waitFor('!QuestDemo.snapshot().running && !QuestDemo.snapshot().modelBusy'); }
+  assert.deepEqual([await snap('game.status'), (await snap('met')).sort()], ['won', ['camp', 'road', 'strike']], 'The trial met the rat, the hurt walk home and camp');
+  // One decision per met situation, asked with the typed orders. No turn is spent.
+  const metCount = 3;
+  await page.eval('window.__stub.seen.length = 0');
+  const turnBefore = await snap('game.turn');
+  await page.click('#readback-ask');
+  await page.waitFor('QuestDemo.snapshot().readback && !QuestDemo.snapshot().readback.pending');
+  assert.equal(await snap('readback.actions.length'), metCount, 'The hero answers every situation met so far');
+  assert.equal(await snap('readback.error'), null);
+  assert.equal(await snap('game.turn'), turnBefore, 'A read-back spends no turn');
+  assert.equal(await page.eval(`window.__stub.seen.length === ${metCount} && window.__stub.seen.every(orders => orders === document.querySelector('#orders').value.trim())`), true, 'The read-back asks with the typed orders');
+  assert.equal(await page.eval('document.querySelectorAll("#readback .rb-list li").length'), metCount);
+  assert.equal(await page.eval('document.querySelector("#readback-ask").disabled'), true, 'Up to date at temperature 0');
+  // Edited orders make the memo stale; reading them back again marks the answers that changed.
+  await stub({ replies: ['heavy'] });
+  await page.eval(`document.querySelector('#orders').value += ' Use heavy strikes.'; document.querySelector('#orders').dispatchEvent(new Event('input', { bubbles: true }))`);
+  assert.equal(await snap('readback.stale'), true, 'Edited orders make the read-back stale');
+  assert.equal(await page.eval('document.querySelector("#readback-ask").disabled'), false);
+  await page.click('#readback-ask');
+  await page.waitFor('!QuestDemo.snapshot().readback.pending');
+  assert.deepEqual([await snap('readback.changed'), await snap('readback.actions[0]')], [1, 'heavy'], 'The changed answer is marked');
+  assert.equal(await page.eval('document.querySelectorAll("#readback li.changed").length'), 1);
+  await page.screenshot(join(artifacts, 'flow-readback.png'));
+  await page.click('[data-preset="reckless"]');
   // The default pace, "Turn by turn", makes Run play a single turn. Reading ahead is off while these checks look at slow replies.
   assert.deepEqual([await snap('pace'), await snap('stopEachTurn')], ['step', true], 'Turn by turn is the default pace');
   assert.match(await page.eval('document.querySelector("#pace").textContent'), /Pace: Turn by turn/);
@@ -528,6 +557,9 @@ try {
     assert.equal((await music()).cue === 'trial' || (await music()).asked === 'trial', true, 'Switched back on, it resumes the trial music');
     await page.click('#reset');
     for(const id of ['depart','quick','quick','advance','advance','finish'])await page.click(`[data-action="${id}"]`);
+    // Fair warning and Prize money deal each opponent's routine in a new order every trial. These clicks follow the fixed
+    // routines, so the draw is switched off for them; it is checked after the walk.
+    await page.eval('QuestDemo.setSeed(null)');
     // Next assignment walks through the two middle assignments to the full circuit. Each is won through the real controls.
     const middle = {
       warning: { stops: 5, goals: 4, win: ['depart','quick','quick','advance','guard','quick','guard','advance','quick','quick','quick','advance','advance','finish'] },
@@ -564,6 +596,17 @@ try {
     }
     await page.click('#next-level');
     assert.equal(await page.eval('QuestDemo.snapshot().game.level'),'circuit');
+    // With the draw on, every Fair warning trial has its own seed; the circuit has none.
+    await page.eval('QuestDemo.setSeed(undefined)');
+    assert.equal(await page.eval('QuestDemo.snapshot().game.seed'), null, 'The circuit keeps its fixed routines');
+    await page.click('[data-level="warning"]');
+    const firstSeed = await page.eval('QuestDemo.snapshot().game.seed');
+    await page.click('[data-level="prize"]');
+    assert.ok(Number.isInteger(await page.eval('QuestDemo.snapshot().game.seed')), 'A Prize money trial draws a seed');
+    await page.click('[data-level="warning"]');
+    const secondSeed = await page.eval('QuestDemo.snapshot().game.seed');
+    assert.ok(Number.isInteger(firstSeed) && Number.isInteger(secondSeed) && firstSeed !== secondSeed, 'Each Fair warning trial draws a new seed');
+    await page.click('[data-level="circuit"]');
     await page.viewport(390,844,true);
     assert.equal(await page.eval('[...document.querySelectorAll(".tabs button")].every(tab => tab.getBoundingClientRect().right <= innerWidth)'),true,'All four assignment tabs fit on a phone');
     await page.viewport(1440,1100);
@@ -664,6 +707,8 @@ try {
     const trials=[...levelTrials.flatMap(level=>customOrders?customOrders.map((text,i)=>[level,`custom${i+1}`,text]):[[level,'careful'],[level,'reckless']]),...(circuitTrial?[['circuit','careful']]:[])];
     const played=[];
     let circuit;
+    // The fixed routines, so these trials compare with the earlier recorded runs. QUEST_SEED=n plays one drawn order instead.
+    await page.eval(`QuestDemo.setSeed(${process.env.QUEST_SEED ? Number(process.env.QUEST_SEED) : null})`);
     for(const [level,preset,text] of trials) {
       const label=`${level} (${preset === 'careful' ? 'careful' : preset === 'reckless' ? 'first draft' : preset})`;
       const file=level==='circuit'&&preset==='careful'?'llm-circuit-trial':`llm-${level}-${preset}-trial`;
