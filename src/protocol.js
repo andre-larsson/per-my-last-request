@@ -32,7 +32,7 @@ export function checklist(s) {
     `- Enemy BRACING: ${yes(kind === 'brace')}`,
     `- Enemy WINDED: ${yes(kind === 'winded')}`,
     `- Health LOW: ${yes(s.hero.healthStatus === 'LOW')}`,
-    `- Optional prize fight: ${yes(e?.optional)}`,
+    `- Optional prize fight: ${yes(e?.optional || s.offer)}`,
   ].join('\n');
 }
 /**
@@ -58,7 +58,7 @@ export function decisionMessages(orders, observation, actions, { allAnswers = fa
     `Location: ${s.location}. Turn ${s.progress.turn} of ${s.progress.turnLimit}.`,
     `Your health is ${s.hero.hp} out of ${s.hero.maxHp}. Health status: ${s.hero.healthStatus}. You have ${s.hero.potions} healing potions, ${s.hero.stamina} stamina, and ${s.hero.coins} coins.`,
     `Training stamps collected: ${s.progress.stamps.length} of ${s.progress.targetStamps}. ${s.progress.requiresChampion ? `Champion defeated: ${s.progress.championDefeated ? 'yes' : 'no'}.` : 'This assignment has no champion fight.'}`,
-    !e ? `You are not currently in a fight.${s.announcedMoves ? `\n${checklist(s)}` : ''}`
+    !e ? `You are not currently in a fight.${s.offer ? ` ${s.offer.name} offers an optional prize fight: ${s.offer.prize} coins if you win.` : ''}${s.announcedMoves ? `\n${checklist(s)}` : ''}`
       // The introductory assignment keeps its original wording, which is what the verified model run saw.
       : !e.nextMove ? `Enemy: ${e.name}, ${e.hp} health, ${e.damage} damage. ${e.armor ? 'This enemy is armored.' : 'This enemy is not armored.'} ${e.agile ? 'This enemy is agile and evades heavy attacks.' : ''} ${e.optional ? 'This is an optional prize fight.' : e.stamp ? 'This fight gives a required training stamp.' : 'This is the champion fight.'}`
       : `Enemy: ${e.name}, ${e.hp} of ${e.maxHp} health. ${e.armor ? `This enemy is armored: it blocks ${e.armor} of every strike.` : 'This enemy is not armored.'}${e.agile ? ' This enemy is agile and evades heavy attacks unless it is winded.' : ''} ${e.optional ? 'This is an optional prize fight.' : e.stamp ? 'This fight gives a required training stamp.' : 'This is the champion fight.'}\n${moveFact(e.nextMove)}\n${checklist(s)}`,

@@ -27,6 +27,9 @@ import { openModel, MODEL, TEMPERATURE } from './llm.mjs';
 const arg = name => process.argv.find(a => a.startsWith(`--${name}=`))?.slice(name.length + 3);
 // --set=fresh: the same nine plans worded by a second author (tools/ideas/orders-fresh.mjs), kept apart from tuning.
 const SET = arg('set') || 'dev';
+// --challenge: the optional prize fighter waits at its stop for the hero to take the fight or walk on (`challenge` in
+// src/game.js, off in the game). An experiment of 2026-11-24.
+if (process.argv.includes('--challenge')) for (const level of ['prize', 'circuit']) G.LEVELS[level].challenge = true;
 const FILE = join(ROOT, 'artifacts', `ideas-rehearse-${MODEL}${SET === 'dev' ? '' : `-${SET}`}${arg('tag') ? `-${arg('tag')}` : ''}.json`);
 
 // ---------- plans and their wordings ----------
@@ -44,6 +47,9 @@ const FIGHT = {
   other: 'Fast, light attacks each turn; block whenever the opponent winds up for its big hit; heal yourself once you are badly hurt.',
 };
 const numbered = text => text.split('|').map((line, i) => `${i + 1}. ${line}`).join('\n');
+// The full circuit's example orders until 2026-11-24, when the game's became a numbered list. The dev set and the probe
+// keep this wording, so their records stay comparable.
+export const CIRCUIT_EXAMPLE = 'Quick strike every turn, except: guard against a SMASH, drink a potion when health is LOW, and retreat from the optional prize fight.';
 export const ORDERS = {
   warning: {
     guard: {
@@ -87,13 +93,13 @@ export const ORDERS = {
   },
   circuit: {
     careful: {
-      example: G.PRESETS.careful,
+      example: CIRCUIT_EXAMPLE,
       list: numbered(`If this is the optional prize fight: retreat.|${FIGHT.list}`),
       speech: "Keep hitting with quick strikes in every fight. Guard only when the enemy is about to smash you, and drink a potion only when your health is low. Don't take the optional prize fight: walk away from the bruiser straight away.",
       other: 'Use fast, light attacks each turn. Block whenever the opponent winds up for its big hit, and heal yourself once you are badly hurt. Turn down the side fight for money: leave it at once.',
     },
     medic: {
-      example: `${G.PRESETS.careful} Visit the medic.`,
+      example: `${CIRCUIT_EXAMPLE} Visit the medic.`,
       list: numbered(`If this is the optional prize fight: retreat.|${FIGHT.list}|At the field medic: get treated.`),
       speech: "Keep hitting with quick strikes in every fight. Guard only when the enemy is about to smash you, and drink a potion only when your health is low. Don't take the optional prize fight: walk away from the bruiser straight away. Do let the medic patch you up when you pass.",
       other: 'Use fast, light attacks each turn. Block whenever the opponent winds up for its big hit, and heal yourself once you are badly hurt. Turn down the side fight for money: leave it at once. See the doctor on the way.',
@@ -125,6 +131,8 @@ export function intended(plan, s) {
     return [plan.attack === 'heavy' && has('heavy') ? 'heavy' : 'quick'];
   }
   if (potion) return ['potion'];
+  // The prize fighter's offer (`challenge`, an experiment): take the fight if the plan fights it, otherwise walk on.
+  if (has('challenge')) return [plan.optional === 'fight' ? 'challenge' : 'advance'];
   if (plan.medic && has('medic')) return ['medic'];
   for (const id of plan.shop || []) if (has(id)) return [id];
   return [offered.find(id => ['finish', 'depart', 'advance'].includes(id))];
@@ -141,7 +149,7 @@ export function kinds(s) {
   const ids = G.availableActions(s).map(a => a.id);
   // Named by what is offered there, not by the stop: a beaten opponent's square or a used medic is just road.
   const buys = ids.filter(id => id.startsWith('buy_'));
-  const place = ids.includes('medic') ? 'medic' : buys.length ? `shop (${buys.join('+')})` : ids.includes('rest') ? 'bench' : ids.includes('finish') ? 'camp, ready to submit' : 'road';
+  const place = ids.includes('challenge') ? 'prize offer' : ids.includes('medic') ? 'medic' : buys.length ? `shop (${buys.join('+')})` : ids.includes('rest') ? 'bench' : ids.includes('finish') ? 'camp, ready to submit' : 'road';
   return { fine: `${tile.name}, ${low ? 'LOW' : s.hp < s.maxHp ? 'hurt' : 'full health'}, offered ${ids.join('+')}`, coarse: `${place}, ${low ? 'LOW' : 'not LOW'}` };
 }
 const start = (level, seed) => seed == null ? G.newGame(level) : drawFight(G.newGame(level), seed);
@@ -277,7 +285,53 @@ export const ARMS = {
   // doubled it (GAME_NOTES, "Known prompt error"). What is true: no damage, and it cannot dodge.
   winded: (orders, s) => trueWinded(ARMS.before(orders, s)),
   'all+winded': (orders, s) => trueWinded(ARMS.all(orders, s)),
+  // ----- 2026-11-24, after the interface runs with `focus`, on the shipped prompt -----
+  // Both models fight the optional prize fight that the orders say to leave: in the dev rehearsals the 3B and the 8B
+  // answered it with retreat 0 times of 36. The guard line names its condition ("Against the SMASH:"), and the 3B guards
+  // a SMASH; the retreat line does not.
+  // named: in the optional fight, the retreat line says what it leaves.
+  named: (orders, s) => retreatNamed(ARMS.plain(orders, s), s),
+  // first: in the optional fight, the retreat line comes first in the list.
+  first: (orders, s) => reorderActions(ARMS.plain(orders, s), s, list => s.enemy?.optional ? [...list.filter(a => a.id === 'retreat'), ...list.filter(a => a.id !== 'retreat')] : list),
+  'named+first': (orders, s) => reorderActions(retreatNamed(ARMS.plain(orders, s), s), s, list => s.enemy?.optional ? [...list.filter(a => a.id === 'retreat'), ...list.filter(a => a.id !== 'retreat')] : list),
+  // reversed: every list of offered actions in reverse order. Does the order of the options sway the choice?
+  reversed: (orders, s) => reorderActions(ARMS.plain(orders, s), s, list => [...list].reverse()),
+  // reordered: the same orders with their parts in another order (see reorderOrders). Does the order of the player's own
+  // sentences sway the choice?
+  reordered: (orders, s) => ARMS.plain(reorderOrders(orders), s),
 };
+const RETREAT_PRIZE = 'retreat: Retreat. Take 2 damage and leave this fight. No prize earned.';
+function retreatNamed([system, user], s) {
+  if (!s.enemy?.optional) return [system, user];
+  if (!user.content.includes(RETREAT_PRIZE)) throw new Error('The game prompt no longer words the prize fight\'s retreat as expected.');
+  return [system, { ...user, content: user.content.replace(RETREAT_PRIZE, 'retreat: Retreat from the optional prize fight. Take 2 damage and leave it. No prize earned.') }];
+}
+/** The action lines of the prompt, put in the order `arrange` gives. Works on whatever the arm made of each line. */
+function reorderActions([system, user], s, arrange) {
+  const ids = G.availableActions(s).map(a => a.id);
+  const head = '\n\nAVAILABLE ACTIONS\n', tail = '\n\nChoose the next action';
+  const from = user.content.indexOf(head) + head.length, to = user.content.indexOf(tail, from);
+  if (from < head.length || to < 0) throw new Error('The game prompt no longer lists the actions as expected.');
+  const lines = user.content.slice(from, to).split('\n');
+  if (lines.length !== ids.length || lines.some((line, i) => !line.startsWith(`${ids[i]}: `))) throw new Error('The action lines do not match the offered actions.');
+  const arranged = arrange(ids.map((id, i) => ({ id, line: lines[i] })));
+  return [system, { ...user, content: user.content.slice(0, from) + arranged.map(a => a.line).join('\n') + user.content.slice(to) }];
+}
+/**
+ * The same orders, their parts in another order: lines bottom to top (renumbered); several sentences last to first;
+ * one "X every turn, except: A, B and C." sentence as "C; B; A. Otherwise, x every turn."
+ */
+export function reorderOrders(orders) {
+  const lines = orders.split('\n').filter(Boolean);
+  if (lines.length > 1) return lines.reverse().map((line, i) => line.replace(/^\d+\./, `${i + 1}.`)).join('\n');
+  const sentences = orders.match(/[^.!?]+[.!?]+(?:\s+|$)/g)?.map(x => x.trim()) || [orders];
+  if (sentences.length > 1) return sentences.reverse().join(' ');
+  const rule = orders.match(/^(.+?) every turn, except: (.+)\.$/);
+  if (!rule) throw new Error(`No way to reorder: ${orders}`);
+  const items = rule[2].split(/, and |, | and /);
+  const cap = t => t[0].toUpperCase() + t.slice(1);
+  return `${cap(items.reverse().join('; '))}. Otherwise, ${rule[1][0].toLowerCase()}${rule[1].slice(1)} every turn.`;
+}
 export const hash = messages => createHash('sha1').update(JSON.stringify(messages)).digest('hex').slice(0, 12);
 const promptOf = (arm, orders, s) => { const messages = ARMS[arm](orders, s); return { messages, ids: G.availableActions(s).map(a => a.id), h: hash(messages) }; };
 const send = prompts => prompts.map(({ messages, ids }) => ({ messages, ids }));
@@ -506,7 +560,7 @@ if (process.argv[1]?.endsWith('ideas/rehearse.mjs')) {
           const read = mine.orders.flatMap(o => o.planRead);
           console.log(`\n##### plan: ${read.filter(ok).length} of ${read.length} plan lines as the plan intends`);
           // The probe's careful circuit orders need a plan of their own.
-          await readPlans(model, [{ level: 'circuit', plan: 'careful', orders: G.PRESETS.careful }]);
+          await readPlans(model, [{ level: 'circuit', plan: 'careful', orders: CIRCUIT_EXAMPLE }]);
         }
         // --reuse-plain, rehearsals only: the shipped prompt's answers come from the full record of the same model and set.
         // At temperature 0 the very same prompt got the very same answer 317 times of 317, so asking again adds nothing.
@@ -521,7 +575,7 @@ if (process.argv[1]?.endsWith('ideas/rehearse.mjs')) {
           console.log(`\n##### plain: reused from the full record (probe ${mine.probe.filter(p => p.action === p.wanted).length} of 13)`);
           continue;
         }
-        const probe = await model.askAll(send(PROBE.map(([, state]) => promptOf(arm, G.PRESETS.careful, state))));
+        const probe = await model.askAll(send(PROBE.map(([, state]) => promptOf(arm, CIRCUIT_EXAMPLE, state))));
         mine.probe = PROBE.map(([label, , wanted], i) => ({ label, wanted, action: probe[i].action }));
         console.log(`\n##### ${arm}: probe ${mine.probe.filter(p => p.action === p.wanted).length} of 13`);
         for (const [i, o] of mine.orders.entries()) {

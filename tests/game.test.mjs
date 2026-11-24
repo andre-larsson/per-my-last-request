@@ -4,8 +4,8 @@ import { newGame, applyAction, availableActions, observation, nextMove, strikeDa
 import { actionSchema, parseDecision, decisionMessages, normalizeDecisionOutput, APPLYING_ORDERS } from '../src/protocol.js';
 
 // Scripted stand-ins for example orders. Test code only; never used as a controller in the game.
-// "Quick strike every turn, except: guard against a SMASH, drink a potion when health is LOW,
-//  and retreat from the optional prize fight."
+// The full circuit's example orders: "1. If this is the optional prize fight: retreat. 2. If health is LOW: drink a potion.
+//  3. If the enemy is about to SMASH: guard. 4. In every other fight turn: quick strike."
 function parry(s) {
   const ids = availableActions(s).map(a => a.id);
   const has = id => ids.includes(id);
@@ -41,7 +41,8 @@ function reckless(s) {
 // Stand-ins for the middle assignments' example orders.
 // "Fight every opponent using quick strikes…" (the tutorial's orders, carried over)
 const quickOnly = s => s.enemy ? 'quick' : availableActions(s).some(a => a.id === 'finish') ? 'finish' : s.status === 'ready' ? 'depart' : 'advance';
-// "Quick strike every turn, except: guard against a SMASH." (Fair warning's orders, carried over to Prize money)
+// "Quick strike every turn, except: guard against a SMASH." (Fair warning's orders, carried over to Prize money with
+// "Buy nothing.")
 const guardSmash = s => s.enemy ? (nextMove(s.enemy).kind === 'smash' ? 'guard' : 'quick') : quickOnly(s);
 // "Quick strike every turn, except: guard against a SMASH and drink a potion when health is LOW. Fight the prize bruiser,
 //  buy only the sharper sword, skip the bench, and submit at camp as soon as you can."
@@ -106,15 +107,17 @@ test('each middle assignment loses its first draft to the one new thing, and win
   assert.equal(warned.status, 'won');
   assert.deepEqual(warned.stamps, ['rat', 'boar', 'quickfoot']);
   assert.equal(warned.bigHitsTaken, 0);
-  // Prize money: Fair warning's orders never drink a potion and fall to the champion with both unused.
+  // Prize money: Fair warning's orders, buying nothing, never drink a potion and fall to the champion with both unused.
   const thirsty = simulate(guardSmash, 'prize');
   assert.deepEqual([thirsty.status, thirsty.hp, thirsty.potions, thirsty.position], ['lost', 0, 2, 10]);
   const paid = simulate(prizeCareful, 'prize');
   assert.equal(paid.status, 'won');
   assert.deepEqual([paid.prizeWon, paid.sword > 0, paid.champion, paid.stamps], [true, true, true, ['quickfoot']]);
   assert.ok(paid.turn <= 24, `scripted, it leaves the model room for wasted turns (${paid.turn} of 30)`);
-  // Each first draft is the previous assignment's careful orders, carried over.
-  assert.equal(PRIZE_PRESETS.reckless, WARNING_PRESETS.careful);
+  // Each first draft is the previous assignment's careful orders, carried over; Prize money's also buys nothing, so the
+  // sharper sword cannot shorten the champion's fight for it.
+  assert.equal(PRIZE_PRESETS.reckless, `${WARNING_PRESETS.careful} Buy nothing.`);
+  assert.equal(simulate(s => availableActions(s).some(a => a.id === 'buy_sword') ? 'buy_sword' : guardSmash(s), 'prize').status, 'won', 'with the sword it would win');
   assert.match(WARNING_PRESETS.reckless, /quick strikes/);
   assert.deepEqual(LEVEL_ORDER.map(level => LEVELS[level].presets), [TUTORIAL_PRESETS, WARNING_PRESETS, PRIZE_PRESETS, PRESETS]);
 });
@@ -147,6 +150,25 @@ test('wasting healing and taking every fight loses on the same course', () => {
   assert.equal(s.status, 'lost');
   assert.equal(s.hp, 0);
   assert.equal(s.potions, 0);
+});
+test('the prize fighter\'s offer (an experiment, off in every assignment): take the fight or walk on', () => {
+  assert.deepEqual(LEVEL_ORDER.map(level => Boolean(LEVELS[level].challenge)), [false, false, false, false]);
+  LEVELS.circuit.challenge = true;
+  try {
+    const at = meet(5, { hp: 30 });
+    assert.equal(at.enemy, null, 'the bruiser waits');
+    assert.deepEqual(availableActions(at).map(a => a.id), ['potion', 'challenge', 'advance']);
+    assert.match(availableActions(at).find(a => a.id === 'advance').detail, /skip the optional prize fight/);
+    assert.deepEqual(observation(at).offer, { name: 'Prize bruiser', prize: 6 });
+    const prompt = decisionMessages('orders', observation(at), availableActions(at))[1].content;
+    assert.match(prompt, /You are not currently in a fight\. Prize bruiser offers an optional prize fight: 6 coins if you win\./);
+    assert.match(prompt, /- Optional prize fight: yes/);
+    const taken = play(at, 'challenge');
+    assert.deepEqual([taken.turn - at.turn, taken.hp, taken.enemy.name, nextMove(taken.enemy).kind], [1, 30, 'Prize bruiser', 'strike'], 'one turn, no hit, then the fight');
+    const walked = play(at, 'advance');
+    assert.deepEqual([walked.hp, walked.position, walked.prizeWon], [30, 6, false], 'walking on costs no health');
+    assert.equal(availableActions(play(taken, 'retreat')).some(a => a.id === 'challenge'), false, 'no second offer after leaving');
+  } finally { delete LEVELS.circuit.challenge; }
 });
 test('illegal commands cannot grant rewards or spend a turn', () => {
   const s = newGame();

@@ -13,7 +13,9 @@ export const PRICES = { sword: 8, buckler: 8, potion: 6 };
 
 export const PRESETS = {
   reckless: 'Fight every opponent. Use heavy strikes. Drink a potion whenever any health is missing. Buy whatever the armorer sells. Keep going until the champion is defeated, then return to camp.',
-  careful: 'Quick strike every turn, except: guard against a SMASH, drink a potion when health is LOW, and retreat from the optional prize fight.',
+  // A numbered list since 2026-11-24: as one sentence with three exceptions, the 3B struck the boar's SMASH instead of
+  // guarding it (GAME_NOTES, "Example orders, the prize fight, and what sways the 3B").
+  careful: '1. If this is the optional prize fight: retreat.\n2. If health is LOW: drink a potion.\n3. If the enemy is about to SMASH: guard.\n4. In every other fight turn: quick strike.',
 };
 export const TUTORIAL_PRESETS = {
   reckless: 'Always retreat from every enemy. Leave every fight immediately. Never attack.',
@@ -21,12 +23,14 @@ export const TUTORIAL_PRESETS = {
 };
 // In the two middle assignments the first draft is the previous assignment's winning orders, carried over. Each loses
 // to the one new thing that assignment adds: the announced SMASH, then a fight long enough to need potions.
+// Prize money's adds "Buy nothing." (2026-11-24): carried over alone, the 3B bought the sharper sword unasked, which
+// shortens the champion's fight enough to win without a potion (8 of 8 of its trials; 3 of 8 with the sentence).
 export const WARNING_PRESETS = {
   reckless: 'Fight every opponent using quick strikes. After earning all three training stamps, return to camp and submit the assignment.',
   careful: 'Quick strike every turn, except: guard against a SMASH.',
 };
 export const PRIZE_PRESETS = {
-  reckless: WARNING_PRESETS.careful,
+  reckless: `${WARNING_PRESETS.careful} Buy nothing.`,
   careful: 'Quick strike every turn, except: guard against a SMASH and drink a potion when health is LOW. Fight the prize bruiser, buy only the sharper sword, skip the bench, and submit at camp as soon as you can.',
 };
 
@@ -166,8 +170,9 @@ export function availableActions(s) {
       if (s.coins >= PRICES.potion) add('buy_potion', 'Buy a potion', { type: 'buy', item: 'potion' }, `Spend ${PRICES.potion} of ${s.coins} coins for one more potion (you carry ${s.potions}). Takes one turn.`);
     }
     if (tile.kind === 'bench' && !s.benchUsed && (s.stamina < 4 || s.hp < s.maxHp)) add('rest', 'Catch your breath', { type: 'rest' }, `Restore stamina to 4 and up to ${BENCH_HP} HP. Once per lap. Takes one turn.`);
+    if (offered(s)) add('challenge', 'Take the prize fight', { type: 'challenge' }, `${tile.name} fights you for ${tile.prize} coins. Takes one turn.`);
     if (tile.kind === 'camp' && assignmentReady(s)) add('finish', 'Submit the assignment', { type: 'finish' });
-    else add('advance', tile.kind === 'camp' ? 'Try another lap' : 'Continue along the circuit', { type: 'advance' }, 'Walk to the next stop. Recover 1 stamina. Takes one turn.');
+    else add('advance', tile.kind === 'camp' ? 'Try another lap' : 'Continue along the circuit', { type: 'advance' }, `Walk to the next stop${offered(s) ? ' and skip the optional prize fight' : ''}. Recover 1 stamina. Takes one turn.`);
   }
   return actions;
 }
@@ -185,25 +190,33 @@ function shuffle(list, rng) {
 function enterTile(s, say) {
   const tile = currentTile(s);
   s.resolved = false;
-  if (tile.kind === 'enemy' && !(tile.boss && s.champion)) {
-    const bonus = s.lap - 1;
-    const base = tile.routine.map(m => ({ ...m, damage: m.damage ? m.damage + bonus : 0 }));
-    // Drawn: the routine repeated in a shuffled order each time round, so every move still comes once per round (the boar
-    // charges once in every two moves) but not in a known order. One stream per seed, stop and lap, so the fight is the
-    // same whatever the hero did before it.
-    // The champion keeps its fixed routine: the finale is a pattern to learn, and a shuffled one let Prize money's first
-    // draft (no potions) win half its trials.
-    const rng = s.seed == null || tile.boss ? null : seeded(s.seed * 7919 + s.position * 104729 + s.lap * 1299709);
-    const routine = rng ? Array.from({ length: 16 }, () => shuffle(base, rng)).flat().map(m => ({ ...m })) : base;
-    s.enemy = { name: tile.name, hp: tile.hp + bonus * 3, maxHp: tile.hp + bonus * 3, damage: tile.damage + bonus, armor: tile.armor, agile: !!tile.agile, stamp: tile.stamp || null, optional: !!tile.optional, boss: !!tile.boss, prize: tile.prize || 2, routine, step: 0 };
-    say('world', 'enter', `${tile.name} steps onto the course.`, { position: s.position });
-  }
+  // With `challenge` (an experiment, off in every assignment): the optional prize fighter waits for the hero to take
+  // its fight or walk on, instead of stepping out at once.
+  if (tile.kind === 'enemy' && tile.optional && levelOf(s).challenge) {
+    say('world', 'offer', `${tile.name} offers a prize fight for ${tile.prize} coins.`, { position: s.position });
+  } else if (tile.kind === 'enemy' && !(tile.boss && s.champion)) spawn(s, tile, say);
   if (tile.kind === 'purse' && !s.purseTaken) { s.coins += 6; s.purseTaken = true; say('world', 'coins', 'Collected 6 guild coins.'); }
   if (tile.kind === 'camp' && s.turn > 0) {
     if (assignmentReady(s)) say('world', 'camp', 'All requirements met. Submit the assignment to finish.');
     else { s.lap++; s.benchUsed = false; say('world', 'camp', 'Back at camp. Another lap is possible, but opponents grow stronger.'); }
   }
 }
+/** The opponent of this stop steps onto the course. */
+function spawn(s, tile, say) {
+  const bonus = s.lap - 1;
+  const base = tile.routine.map(m => ({ ...m, damage: m.damage ? m.damage + bonus : 0 }));
+  // Drawn: the routine repeated in a shuffled order each time round, so every move still comes once per round (the boar
+  // charges once in every two moves) but not in a known order. One stream per seed, stop and lap, so the fight is the
+  // same whatever the hero did before it.
+  // The champion keeps its fixed routine: the finale is a pattern to learn, and a shuffled one let Prize money's first
+  // draft (no potions) win half its trials.
+  const rng = s.seed == null || tile.boss ? null : seeded(s.seed * 7919 + s.position * 104729 + s.lap * 1299709);
+  const routine = rng ? Array.from({ length: 16 }, () => shuffle(base, rng)).flat().map(m => ({ ...m })) : base;
+  s.enemy = { name: tile.name, hp: tile.hp + bonus * 3, maxHp: tile.hp + bonus * 3, damage: tile.damage + bonus, armor: tile.armor, agile: !!tile.agile, stamp: tile.stamp || null, optional: !!tile.optional, boss: !!tile.boss, prize: tile.prize || 2, routine, step: 0 };
+  say('world', 'enter', `${tile.name} steps onto the course.`, { position: s.position });
+}
+/** At a stop whose optional prize fighter waits (`challenge`), until the hero takes the fight, walks on or leaves it. */
+const offered = s => !s.enemy && !s.resolved && currentTile(s).optional && !!levelOf(s).challenge;
 
 function defeat(s, say) {
   const e = s.enemy;
@@ -262,6 +275,8 @@ export function applyAction(state, actionId, source = 'manual') {
     s.potions--;
     s.drank++;
     say('hero', 'heal', `Used a potion for ${healed} HP.`, { source: 'potion' });
+  } else if (command.type === 'challenge') {
+    spawn(s, currentTile(s), say);
   } else if (command.type === 'retreat') {
     s.hp = Math.max(0, s.hp - 2);
     say('hero', 'retreat', `Left ${s.enemy.name} behind. Lost 2 HP.`);
@@ -287,7 +302,7 @@ export function applyAction(state, actionId, source = 'manual') {
     s.status = 'won';
     say('world', 'finish', 'Assignment accepted. The guild is reluctantly impressed.');
   }
-  if (s.enemy && command.type !== 'advance' && command.type !== 'retreat') {
+  if (s.enemy && command.type !== 'advance' && command.type !== 'retreat' && command.type !== 'challenge') {
     const e = s.enemy;
     const m = nextMove(e);
     const raw = incoming(e);
@@ -338,6 +353,7 @@ export function observation(s) {
     hero: { hp: s.hp, maxHp: s.maxHp, healthStatus: s.hp <= LOW_HP ? 'LOW' : 'OK', stamina: s.stamina, potions: s.potions, coins: s.coins, swordBonus: s.sword, ...(announced(s) ? { guardBlock: guardBlock(s) } : {}) },
     location: currentTile(s).name,
     enemy,
+    ...(offered(s) ? { offer: { name: currentTile(s).name, prize: currentTile(s).prize } } : {}),
     ...(announced(s) ? { announcedMoves: true } : {}),
     progress: { stamps: s.stamps, targetStamps: levelOf(s).stamps.length, requiresChampion: levelOf(s).champion, championDefeated: s.champion, turn: s.turn, turnLimit: s.turnLimit, lap: s.lap },
     rules: 'Quick attacks restore 1 stamina. Heavy attacks cost 2 stamina. Healing restores up to 18 HP and consumes a turn. An active enemy retaliates after healing or a nonlethal attack. The field medic heals 12 HP once. Walking restores 1 stamina. Retreat loses 2 HP and forfeits that enemy reward. Agile enemies evade heavy strikes. Model thinking does not consume game turns.',
